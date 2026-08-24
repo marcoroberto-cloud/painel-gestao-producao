@@ -5,7 +5,7 @@ import os
 import re
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 st.set_page_config(
     page_title="Gestão Integrada: Produção, Pintura & Compras",
@@ -14,6 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Estilização CSS: Topo congelado, compactação de fontes e margens mínimas
 st.markdown("""
 <style>
     .block-container {
@@ -53,9 +54,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Diretório persistente compartilhado
 STORAGE_DIR = "dados_compartilhados"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 META_FILE = os.path.join(STORAGE_DIR, "metadata.json")
+
+# Fuso horário de Brasília (UTC-3)
+FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 def carregar_meta():
     if os.path.exists(META_FILE):
@@ -125,11 +130,10 @@ with col_head_up:
 if "ultimo_upload_ids" not in st.session_state:
     st.session_state.ultimo_upload_ids = ""
 
-# Processar apenas quando arquivos novos forem realmente enviados (sem rerun em loop)
 if arquivos_enviados:
     ids_atuais = "_".join([f"{f.name}_{f.size}" for f in arquivos_enviados])
     if ids_atuais != st.session_state.ultimo_upload_ids:
-        agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        agora_str = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M")
         for f in arquivos_enviados:
             try:
                 file_bytes = f.getvalue()
@@ -177,6 +181,7 @@ def buscar_col(df, termos, padrao_idx=0):
     if 0 <= padrao_idx < len(df.columns): return df.columns[padrao_idx]
     return df.columns[0]
 
+# --- PROCESSAMENTO OP FABRICAÇÃO ---
 df_op = pd.DataFrame()
 if not df_op_raw.empty:
     col_obs_op = buscar_col(df_op_raw, ["OBSERVACAO", "OBSERVAÇÃO", "OBS"], 1)
@@ -199,6 +204,7 @@ if not df_op_raw.empty:
     df_op["MES"] = df_op["MES_ANO"].str.extract(r'/(\d{2})')[0]
     df_op["DT_FABR"] = df_op[col_dt_fim].fillna("-").astype(str) if col_dt_fim else "-"
 
+# --- PROCESSAMENTO ROMANEIO DE PINTURA ---
 df_rom = pd.DataFrame()
 if not df_rom_raw.empty:
     col_obs_rom = buscar_col(df_rom_raw, ["OBSERVAÇÕES", "OBSERVACOES", "OBSERVACAO", "OBS"], -1 if len(df_rom_raw.columns) >= 1 else 0)
@@ -219,6 +225,7 @@ if not df_rom_raw.empty:
     df_rom["NF_ROM"] = df_rom[col_nf_rom].fillna("-").astype(str) if col_nf_rom else "-"
     df_rom["DT_ROM"] = df_rom[col_dt_rom].fillna("-").astype(str) if col_dt_rom else "-"
 
+# --- PROCESSAMENTO COMPRAS EXTERNAS (COLUNAS K a U) ---
 df_comp = pd.DataFrame()
 if not df_comp_raw.empty:
     col_tat_comp = buscar_col(df_comp_raw, ["TAT"], 0)
@@ -258,6 +265,7 @@ if not df_comp_raw.empty:
         else: return "⏳ Aguardando Fornecedor"
     df_comp["Status_Compra"] = df_comp.apply(calc_status_compra, axis=1)
 
+# --- CRUZAMENTO DE DADOS ---
 op_obs = df_op.groupby(["TAT_BASE", "OBS_NORM", "COD_PECA"], as_index=False).agg(
     Descricao=("DESC_PECA", "first"),
     Qtd_OP=("QTD_PLAN", "sum"),
@@ -316,6 +324,7 @@ for df in [df_cruz_obs, df_cruz_tat]:
 
     df["Status"] = df.apply(calc_status, axis=1)
 
+# --- ÁREA STICKY DE FILTROS E MÉTRICAS ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
 col_modo, col_busca_peca = st.columns([1, 2])
@@ -382,6 +391,7 @@ c5.metric("5. Compras Externas", f"{tot_entregue:,} / {tot_comprado:,} pçs", f"
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# --- ABAS DETALHADAS ---
 tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
     "🏗️ Metálicos: Balanço Completo do Projeto", "📈 Produção Mensal", "✅ Peças Retornadas", "🚨 Falta Retorno de Tratamento",
     "🚚 Fabricadas Aguardando Envio", "⚙️ Falta Fabricar Internamente", "📦 Compras e Projetos Externados",
