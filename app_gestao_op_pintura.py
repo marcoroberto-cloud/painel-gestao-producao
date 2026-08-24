@@ -149,6 +149,7 @@ def ler_excel_rapido(fonte, sheet_name=0):
     except Exception:
         return pd.read_excel(fonte, sheet_name=sheet_name)
 
+@st.cache_data(show_spinner=False)
 def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
     output = io.BytesIO()
     if df_exportar.empty:
@@ -201,11 +202,8 @@ if arquivos_enviados:
             try:
                 file_bytes = f.getvalue()
                 
-                # Se for arquivo Excel, checa todas as abas
                 if not f.name.endswith('.csv'):
                     xl = pd.ExcelFile(io.BytesIO(file_bytes))
-                    sheet_names = [s.upper() for s in xl.sheet_names]
-                    
                     for s_name in xl.sheet_names:
                         df_sheet = pd.read_excel(io.BytesIO(file_bytes), sheet_name=s_name, nrows=5)
                         cols = [str(c).upper() for c in df_sheet.columns]
@@ -249,16 +247,26 @@ if arquivos_enviados:
         meta_atual["ultima_atualizacao"] = agora_str
         salvar_meta(meta_atual)
         st.session_state.ultimo_upload_ids = ids_atuais
+        st.cache_data.clear()
 
 caminho_op_pqt = os.path.join(STORAGE_DIR, "base_op.parquet")
 caminho_rom_pqt = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
 caminho_comp_pqt = os.path.join(STORAGE_DIR, "base_compras.parquet")
 caminho_sc_pqt = os.path.join(STORAGE_DIR, "base_sc.parquet")
 
-df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
-df_rom_raw = pd.read_parquet(caminho_rom_pqt) if os.path.exists(caminho_rom_pqt) else pd.DataFrame()
-df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
-df_sc_raw = pd.read_parquet(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else pd.DataFrame()
+@st.cache_data(show_spinner=False)
+def ler_parquet_cache(caminho, mtime):
+    if os.path.exists(caminho):
+        return pd.read_parquet(caminho)
+    return pd.DataFrame()
+
+def obter_mtime(caminho):
+    return os.path.getmtime(caminho) if os.path.exists(caminho) else 0
+
+df_op_raw = ler_parquet_cache(caminho_op_pqt, obter_mtime(caminho_op_pqt))
+df_rom_raw = ler_parquet_cache(caminho_rom_pqt, obter_mtime(caminho_rom_pqt))
+df_comp_raw = ler_parquet_cache(caminho_comp_pqt, obter_mtime(caminho_comp_pqt))
+df_sc_raw = ler_parquet_cache(caminho_sc_pqt, obter_mtime(caminho_sc_pqt))
 
 if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empty:
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
