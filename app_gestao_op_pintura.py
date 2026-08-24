@@ -95,6 +95,18 @@ def ler_excel_rapido(fonte):
     except Exception:
         return pd.read_excel(fonte)
 
+def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
+    output = io.BytesIO()
+    illegal_chars = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
+    df_clean = df_exportar.copy()
+    for col in df_clean.columns:
+        if df_clean[col].dtype == 'object' or str(df_clean[col].dtype) == 'string':
+            df_clean[col] = df_clean[col].apply(lambda x: illegal_chars.sub('', str(x)) if pd.notna(x) else x)
+            
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_clean.to_excel(writer, index=False, sheet_name=nome_aba[:30])
+    return output.getvalue()
+
 col_head_tit, col_head_up = st.columns([1, 3])
 meta_atual = carregar_meta()
 data_atualizacao = meta_atual.get("ultima_atualizacao", "Nenhum arquivo salvo ainda")
@@ -110,38 +122,39 @@ with col_head_up:
         accept_multiple_files=True
     )
 
+if "ultimo_upload_ids" not in st.session_state:
+    st.session_state.ultimo_upload_ids = ""
+
+# Processar apenas quando arquivos novos forem realmente enviados (sem rerun em loop)
 if arquivos_enviados:
-    agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
-    houve_novo = False
-    
-    for f in arquivos_enviados:
-        try:
-            file_bytes = f.getvalue()
-            df_teste = pd.read_excel(io.BytesIO(file_bytes), nrows=5) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes), nrows=5)
-            cols = [str(c).upper() for c in df_teste.columns]
-            fname = f.name.upper()
+    ids_atuais = "_".join([f"{f.name}_{f.size}" for f in arquivos_enviados])
+    if ids_atuais != st.session_state.ultimo_upload_ids:
+        agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+        for f in arquivos_enviados:
+            try:
+                file_bytes = f.getvalue()
+                df_teste = pd.read_excel(io.BytesIO(file_bytes), nrows=5) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes), nrows=5)
+                cols = [str(c).upper() for c in df_teste.columns]
+                fname = f.name.upper()
 
-            caminho_salvar = None
-            if any("FORNECEDOR" in c for c in cols) or any("QTD ENTREGUE" in c for c in cols) or "COMPRA" in fname or "EXTERNO" in fname:
-                caminho_salvar = os.path.join(STORAGE_DIR, "base_compras.parquet")
-            elif any("PRODUZID" in c for c in cols) or any("CLASSE VALOR" in c for c in cols) or "OP" in fname or "FABRICA" in fname:
-                caminho_salvar = os.path.join(STORAGE_DIR, "base_op.parquet")
-            elif any("QT RET" in c for c in cols) or any("SALDO" in c for c in cols) or "ROMANEIO" in fname or "PLANIL" in fname:
-                caminho_salvar = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
+                caminho_salvar = None
+                if any("FORNECEDOR" in c for c in cols) or any("QTD ENTREGUE" in c for c in cols) or "COMPRA" in fname or "EXTERNO" in fname:
+                    caminho_salvar = os.path.join(STORAGE_DIR, "base_compras.parquet")
+                elif any("PRODUZID" in c for c in cols) or any("CLASSE VALOR" in c for c in cols) or "OP" in fname or "FABRICA" in fname:
+                    caminho_salvar = os.path.join(STORAGE_DIR, "base_op.parquet")
+                elif any("QT RET" in c for c in cols) or any("SALDO" in c for c in cols) or "ROMANEIO" in fname or "PLANIL" in fname:
+                    caminho_salvar = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
 
-            if caminho_salvar:
-                df_completo = ler_excel_rapido(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
-                df_completo = df_completo.astype(str)
-                df_completo.to_parquet(caminho_salvar, index=False)
-                houve_novo = True
-        except Exception as e:
-            st.error(f"Erro ao processar {f.name}: {e}")
-            
-    if houve_novo:
+                if caminho_salvar:
+                    df_completo = ler_excel_rapido(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
+                    df_completo = df_completo.astype(str)
+                    df_completo.to_parquet(caminho_salvar, index=False)
+            except Exception as e:
+                st.error(f"Erro ao processar {f.name}: {e}")
+                
         meta_atual["ultima_atualizacao"] = agora_str
         salvar_meta(meta_atual)
-        st.success(f"✅ Planilhas salvas com sucesso no servidor às {agora_str}!")
-        st.rerun()
+        st.session_state.ultimo_upload_ids = ids_atuais
 
 caminho_op_pqt = os.path.join(STORAGE_DIR, "base_op.parquet")
 caminho_rom_pqt = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
@@ -152,7 +165,7 @@ df_rom_raw = pd.read_parquet(caminho_rom_pqt) if os.path.exists(caminho_rom_pqt)
 df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
 
 if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty:
-    st.info("👆 Nenhuma planilha salva no servidor ainda. Arraste as 3 planilhas no campo acima para inicializar o painel.")
+    st.info("👆 Nenhuma planilha salva ainda. Selecione os 3 arquivos no campo acima para carregar o painel.")
     st.stop()
 
 def buscar_col(df, termos, padrao_idx=0):
@@ -368,12 +381,6 @@ c4.metric("4. Retornado (Pronto)", f"{tot_ret:,} pçs", f"Falta Voltar: {saldo_r
 c5.metric("5. Compras Externas", f"{tot_entregue:,} / {tot_comprado:,} pçs", f"Falta Entregar: {saldo_compra:,} pçs", delta_color="inverse" if saldo_compra > 0 else "normal")
 
 st.markdown('</div>', unsafe_allow_html=True)
-
-def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_exportar.to_excel(writer, index=False, sheet_name=nome_aba[:30])
-    return output.getvalue()
 
 tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
     "🏗️ Metálicos: Balanço Completo do Projeto", "📈 Produção Mensal", "✅ Peças Retornadas", "🚨 Falta Retorno de Tratamento",
