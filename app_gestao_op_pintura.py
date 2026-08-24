@@ -54,7 +54,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Diretório persistente compartilhado
 STORAGE_DIR = "dados_compartilhados"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 META_FILE = os.path.join(STORAGE_DIR, "metadata.json")
@@ -100,16 +99,32 @@ def ler_excel_rapido(fonte):
     except Exception:
         return pd.read_excel(fonte)
 
+# Sanitização total contra IllegalCharacterError (limpa cabeçalhos e células)
 def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
     output = io.BytesIO()
-    illegal_chars = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
+    if df_exportar.empty:
+        return output.getvalue()
+    
     df_clean = df_exportar.copy()
-    for col in df_clean.columns:
-        if df_clean[col].dtype == 'object' or str(df_clean[col].dtype) == 'string':
-            df_clean[col] = df_clean[col].apply(lambda x: illegal_chars.sub('', str(x)) if pd.notna(x) else x)
-            
+    
+    def sanitizar_val(val):
+        if pd.isna(val) or val is None:
+            return ""
+        return re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', str(val))
+    
+    # 1. Sanitiza os nomes das colunas (cabeçalhos)
+    df_clean.columns = [sanitizar_val(c) for c in df_clean.columns]
+    
+    # 2. Sanitiza todos os dados das células
+    try:
+        df_clean = df_clean.map(sanitizar_val)
+    except AttributeError:
+        df_clean = df_clean.applymap(sanitizar_val)
+        
+    aba_segura = re.sub(r'[\\/*?:\[\]]', '', str(nome_aba))[:30]
+    
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_clean.to_excel(writer, index=False, sheet_name=nome_aba[:30])
+        df_clean.to_excel(writer, index=False, sheet_name=aba_segura)
     return output.getvalue()
 
 col_head_tit, col_head_up = st.columns([1, 3])
