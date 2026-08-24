@@ -4,6 +4,8 @@ import numpy as np
 import os
 import re
 import io
+import json
+from datetime import datetime
 
 st.set_page_config(
     page_title="Gestão Integrada: Produção, Pintura & Compras",
@@ -12,7 +14,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS: Topo congelado, máxima compactação e fontes ajustadas
 st.markdown("""
 <style>
     .block-container {
@@ -22,11 +23,7 @@ st.markdown("""
         padding-right: 1rem !important;
         max-width: 100% !important;
     }
-    
-    [data-testid="stSidebar"] {
-        display: none !important;
-    }
-    
+    [data-testid="stSidebar"] { display: none !important; }
     .sticky-top-panel {
         position: sticky;
         top: 0;
@@ -38,59 +35,40 @@ st.markdown("""
         margin-bottom: 12px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.6);
     }
-    
     [data-testid="stMetricValue"] {
         font-size: 1.10rem !important;
         font-weight: 700 !important;
         color: #1E88E5 !important;
         line-height: 1.1 !important;
     }
-    [data-testid="stMetricLabel"] {
-        font-size: 0.73rem !important;
-        line-height: 1.1 !important;
-    }
-    [data-testid="stMetricDelta"] {
-        font-size: 0.70rem !important;
-    }
-    
-    div[data-baseweb="select"] * {
-        font-size: 0.75rem !important;
-        white-space: normal !important;
-        word-break: break-word !important;
-    }
-    
-    div[data-baseweb="tag"] {
-        max-width: 100% !important;
-        height: auto !important;
-        white-space: normal !important;
-        word-break: break-word !important;
-        padding: 2px 6px !important;
-        margin: 1px 0 !important;
-        line-height: 1.2 !important;
-    }
-    div[data-baseweb="tag"] span {
-        font-size: 0.73rem !important;
-        white-space: normal !important;
-        word-break: break-word !important;
-    }
-    
-    ul[data-baseweb="menu"] li, div[data-baseweb="popover"] * {
-        font-size: 0.75rem !important;
-        line-height: 1.25 !important;
-        white-space: normal !important;
-        word-break: break-word !important;
-        padding-top: 4px !important;
-        padding-bottom: 4px !important;
-    }
-    
+    [data-testid="stMetricLabel"] { font-size: 0.73rem !important; line-height: 1.1 !important; }
+    [data-testid="stMetricDelta"] { font-size: 0.70rem !important; }
+    div[data-baseweb="select"] * { font-size: 0.75rem !important; white-space: normal !important; word-break: break-word !important; }
+    div[data-baseweb="tag"] { max-width: 100% !important; height: auto !important; white-space: normal !important; word-break: break-word !important; padding: 2px 6px !important; margin: 1px 0 !important; line-height: 1.2 !important; }
+    div[data-baseweb="tag"] span { font-size: 0.73rem !important; white-space: normal !important; word-break: break-word !important; }
+    ul[data-baseweb="menu"] li, div[data-baseweb="popover"] * { font-size: 0.75rem !important; line-height: 1.25 !important; white-space: normal !important; word-break: break-word !important; padding-top: 4px !important; padding-bottom: 4px !important; }
     .stTabs [data-baseweb="tab-list"] { gap: 6px; }
     .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.80rem; padding: 0 10px; }
-    
-    [data-testid="stDataFrame"] {
-        width: 100% !important;
-    }
+    [data-testid="stDataFrame"] { width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
+
+STORAGE_DIR = "dados_compartilhados"
+os.makedirs(STORAGE_DIR, exist_ok=True)
+META_FILE = os.path.join(STORAGE_DIR, "metadata.json")
+
+def carregar_meta():
+    if os.path.exists(META_FILE):
+        try:
+            with open(META_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def salvar_meta(meta):
+    with open(META_FILE, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
 def normalizar_texto(t):
     if pd.isna(t): return ""
@@ -111,35 +89,31 @@ def converter_num(v):
     try: return float(str(v).replace(',', '.'))
     except: return 0.0
 
-# --- SEÇÃO DE UPLOAD 100% VISÍVEL NO TOPO ---
+def ler_excel_rapido(fonte):
+    try:
+        return pd.read_excel(fonte, engine="calamine")
+    except Exception:
+        return pd.read_excel(fonte)
+
 col_head_tit, col_head_up = st.columns([1, 3])
+meta_atual = carregar_meta()
+data_atualizacao = meta_atual.get("ultima_atualizacao", "Nenhum arquivo salvo ainda")
+
 with col_head_tit:
     st.markdown("### 🏭 Gestão Integrada")
-    st.caption("Fabricação x Romaneio x Compras")
+    st.caption(f"🕒 **Última carga:** {data_atualizacao}")
 
 with col_head_up:
     arquivos_enviados = st.file_uploader(
-        "📁 Arraste as 3 planilhas juntas (.xlsx) ou clique para selecionar:", 
+        "📁 Carregar novas planilhas (ficarão salvas para todos):", 
         type=["xlsx", "xls", "csv"], 
         accept_multiple_files=True
     )
 
-# Fallback para execução local
-pastas = [".", os.path.expanduser("~/Downloads"), "C:/Users/marco.roberto/Downloads", "C:/Users/marco.roberto/Desktop/PROGRAMA PYTHON"]
-def achar_arquivo_local(termos):
-    for p in pastas:
-        if not os.path.exists(p): continue
-        for arq in os.listdir(p):
-            if any(t.upper() in arq.upper() for t in termos) and arq.endswith(('.xlsx', '.xls', '.csv')):
-                return os.path.join(p, arq)
-    return None
-
-df_op_raw = pd.DataFrame()
-df_rom_raw = pd.DataFrame()
-df_comp_raw = pd.DataFrame()
-
-# Leitura segura baseada em bytes
 if arquivos_enviados:
+    agora_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    houve_novo = False
+    
     for f in arquivos_enviados:
         try:
             file_bytes = f.getvalue()
@@ -147,51 +121,49 @@ if arquivos_enviados:
             cols = [str(c).upper() for c in df_teste.columns]
             fname = f.name.upper()
 
+            caminho_salvar = None
             if any("FORNECEDOR" in c for c in cols) or any("QTD ENTREGUE" in c for c in cols) or "COMPRA" in fname or "EXTERNO" in fname:
-                df_comp_raw = pd.read_excel(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
+                caminho_salvar = os.path.join(STORAGE_DIR, "base_compras.parquet")
             elif any("PRODUZID" in c for c in cols) or any("CLASSE VALOR" in c for c in cols) or "OP" in fname or "FABRICA" in fname:
-                df_op_raw = pd.read_excel(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
+                caminho_salvar = os.path.join(STORAGE_DIR, "base_op.parquet")
             elif any("QT RET" in c for c in cols) or any("SALDO" in c for c in cols) or "ROMANEIO" in fname or "PLANIL" in fname:
-                df_rom_raw = pd.read_excel(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
+                caminho_salvar = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
+
+            if caminho_salvar:
+                df_completo = ler_excel_rapido(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
+                df_completo = df_completo.astype(str)
+                df_completo.to_parquet(caminho_salvar, index=False)
+                houve_novo = True
         except Exception as e:
-            st.error(f"Erro ao ler arquivo {f.name}: {e}")
+            st.error(f"Erro ao processar {f.name}: {e}")
+            
+    if houve_novo:
+        meta_atual["ultima_atualizacao"] = agora_str
+        salvar_meta(meta_atual)
+        st.success(f"✅ Planilhas salvas com sucesso no servidor às {agora_str}!")
+        st.rerun()
 
-# Se não enviou pelo navegador, tenta ler do disco local
-if df_op_raw.empty:
-    loc_op = achar_arquivo_local(["OP FABRICAÇÃO", "OP FABRICACAO", "OP_FABRICACAO"])
-    if loc_op:
-        try: df_op_raw = pd.read_excel(loc_op)
-        except: pass
+caminho_op_pqt = os.path.join(STORAGE_DIR, "base_op.parquet")
+caminho_rom_pqt = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
+caminho_comp_pqt = os.path.join(STORAGE_DIR, "base_compras.parquet")
 
-if df_rom_raw.empty:
-    loc_rom = achar_arquivo_local(["ROMANEIO", "PLANILHA ROMANEIO"])
-    if loc_rom:
-        try: df_rom_raw = pd.read_excel(loc_rom)
-        except: pass
+df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
+df_rom_raw = pd.read_parquet(caminho_rom_pqt) if os.path.exists(caminho_rom_pqt) else pd.DataFrame()
+df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
 
-if df_comp_raw.empty:
-    loc_comp = achar_arquivo_local(["COMPRAS", "ALINHAMENTO", "EXTERNO", "PROJETOS EXTERNOS"])
-    if loc_comp:
-        try: df_comp_raw = pd.read_excel(loc_comp)
-        except: pass
-
-# Trava amigável apenas se NENHUM dado existir
 if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty:
-    st.info("👆 Selecione as 3 planilhas no campo acima para carregar o painel.")
+    st.info("👆 Nenhuma planilha salva no servidor ainda. Arraste as 3 planilhas no campo acima para inicializar o painel.")
     st.stop()
 
 def buscar_col(df, termos, padrao_idx=0):
-    if df.empty or len(df.columns) == 0:
-        return None
+    if df.empty or len(df.columns) == 0: return None
     for c in df.columns:
         for t in termos:
             if t.upper() == str(c).strip().upper() or t.upper() in str(c).strip().upper():
                 return c
-    if 0 <= padrao_idx < len(df.columns):
-        return df.columns[padrao_idx]
+    if 0 <= padrao_idx < len(df.columns): return df.columns[padrao_idx]
     return df.columns[0]
 
-# --- PROCESSAMENTO OP FABRICAÇÃO ---
 df_op = pd.DataFrame()
 if not df_op_raw.empty:
     col_obs_op = buscar_col(df_op_raw, ["OBSERVACAO", "OBSERVAÇÃO", "OBS"], 1)
@@ -214,7 +186,6 @@ if not df_op_raw.empty:
     df_op["MES"] = df_op["MES_ANO"].str.extract(r'/(\d{2})')[0]
     df_op["DT_FABR"] = df_op[col_dt_fim].fillna("-").astype(str) if col_dt_fim else "-"
 
-# --- PROCESSAMENTO ROMANEIO DE PINTURA ---
 df_rom = pd.DataFrame()
 if not df_rom_raw.empty:
     col_obs_rom = buscar_col(df_rom_raw, ["OBSERVAÇÕES", "OBSERVACOES", "OBSERVACAO", "OBS"], -1 if len(df_rom_raw.columns) >= 1 else 0)
@@ -235,7 +206,6 @@ if not df_rom_raw.empty:
     df_rom["NF_ROM"] = df_rom[col_nf_rom].fillna("-").astype(str) if col_nf_rom else "-"
     df_rom["DT_ROM"] = df_rom[col_dt_rom].fillna("-").astype(str) if col_dt_rom else "-"
 
-# --- PROCESSAMENTO COMPRAS EXTERNAS (COLUNAS K a U) ---
 df_comp = pd.DataFrame()
 if not df_comp_raw.empty:
     col_tat_comp = buscar_col(df_comp_raw, ["TAT"], 0)
@@ -251,12 +221,9 @@ if not df_comp_raw.empty:
     col_dt_forn = buscar_col(df_comp_raw, ["DATA FORNECEDOR", "DT FORNECEDOR"], 10)
 
     df_comp = df_comp_raw.copy()
-    if col_tat_comp:
-        df_comp["TAT_BASE"] = df_comp[col_tat_comp].apply(extrair_tat_base)
-    elif col_obs_comp:
-        df_comp["TAT_BASE"] = df_comp[col_obs_comp].apply(extrair_tat_base)
-    else:
-        df_comp["TAT_BASE"] = "-"
+    if col_tat_comp: df_comp["TAT_BASE"] = df_comp[col_tat_comp].apply(extrair_tat_base)
+    elif col_obs_comp: df_comp["TAT_BASE"] = df_comp[col_obs_comp].apply(extrair_tat_base)
+    else: df_comp["TAT_BASE"] = "-"
 
     df_comp["OBS_NORM"] = df_comp[col_obs_comp].apply(normalizar_texto) if col_obs_comp else ""
     df_comp["COD_PECA"] = df_comp[col_prod_comp].apply(limpar_cod) if col_prod_comp else ""
@@ -265,25 +232,19 @@ if not df_comp_raw.empty:
     df_comp["Qtd_Comprada"] = df_comp[col_qt_comp].apply(converter_num) if col_qt_comp else 0.0
     df_comp["Qtd_Entregue"] = df_comp[col_ent_comp].apply(converter_num) if col_ent_comp else 0.0
     
-    if col_fal_comp:
-        df_comp["Saldo_Falta_Entregar"] = df_comp[col_fal_comp].apply(converter_num)
-    else:
-        df_comp["Saldo_Falta_Entregar"] = (df_comp["Qtd_Comprada"] - df_comp["Qtd_Entregue"]).clip(lower=0.0)
+    if col_fal_comp: df_comp["Saldo_Falta_Entregar"] = df_comp[col_fal_comp].apply(converter_num)
+    else: df_comp["Saldo_Falta_Entregar"] = (df_comp["Qtd_Comprada"] - df_comp["Qtd_Entregue"]).clip(lower=0.0)
 
     df_comp["Data_Entrega"] = df_comp[col_dt_comp].fillna("-").astype(str) if col_dt_comp else "-"
     df_comp["NF_Entrega"] = df_comp[col_nf_comp].fillna("-").astype(str) if col_nf_comp else "-"
     df_comp["Data_Fornecedor"] = df_comp[col_dt_forn].fillna("-").astype(str) if col_dt_forn else "-"
     
     def calc_status_compra(r):
-        if r["Qtd_Entregue"] >= r["Qtd_Comprada"] and r["Qtd_Comprada"] > 0:
-            return "✅ 100% Entregue"
-        elif r["Qtd_Entregue"] > 0:
-            return "🚚 Entregue Parcial"
-        else:
-            return "⏳ Aguardando Fornecedor"
+        if r["Qtd_Entregue"] >= r["Qtd_Comprada"] and r["Qtd_Comprada"] > 0: return "✅ 100% Entregue"
+        elif r["Qtd_Entregue"] > 0: return "🚚 Entregue Parcial"
+        else: return "⏳ Aguardando Fornecedor"
     df_comp["Status_Compra"] = df_comp.apply(calc_status_compra, axis=1)
 
-# --- CRUZAMENTO DE DADOS ---
 op_obs = df_op.groupby(["TAT_BASE", "OBS_NORM", "COD_PECA"], as_index=False).agg(
     Descricao=("DESC_PECA", "first"),
     Qtd_OP=("QTD_PLAN", "sum"),
@@ -334,44 +295,30 @@ for df in [df_cruz_obs, df_cruz_tat]:
     df["Falta_Fabricar"] = (df["Qtd_OP"] - df["Qtd_Fabr"]).clip(lower=0.0)
 
     def calc_status(r):
-        if r["Qtd_Fabr"] == 0 and r["Qtd_OP"] > 0:
-            return "1. Falta Fabricar Internamente"
-        elif r["Aguardando_Envio"] > 0 and r["Env_Pintura"] == 0:
-            return "2. Fabricado (Não Enviado)"
-        elif r["Saldo_Pendente_Pintura"] > 0:
-            return "3. Em Tratamento Externo"
-        elif r["Ret_Pintura"] >= r["Qtd_Fabr"] and r["Qtd_Fabr"] > 0:
-            return "4. 100% Concluído (Entregue)"
-        else:
-            return "5. Parcial / Diversos"
+        if r["Qtd_Fabr"] == 0 and r["Qtd_OP"] > 0: return "1. Falta Fabricar Internamente"
+        elif r["Aguardando_Envio"] > 0 and r["Env_Pintura"] == 0: return "2. Fabricado (Não Enviado)"
+        elif r["Saldo_Pendente_Pintura"] > 0: return "3. Em Tratamento Externo"
+        elif r["Ret_Pintura"] >= r["Qtd_Fabr"] and r["Qtd_Fabr"] > 0: return "4. 100% Concluído (Entregue)"
+        else: return "5. Parcial / Diversos"
 
     df["Status"] = df.apply(calc_status, axis=1)
 
-# --- ÁREA STICKY DE FILTROS E MÉTRICAS ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
 col_modo, col_busca_peca = st.columns([1, 2])
 with col_modo:
-    modo_visao = st.radio(
-        "Modo de Agrupamento:", 
-        ["📌 Por Projeto / TAT Geral (Coluna K)", "📝 Por Observação de Lote (Coluna L)"],
-        horizontal=True
-    )
+    modo_visao = st.radio("Modo de Agrupamento:", ["📌 Por Projeto / TAT Geral (Coluna K)", "📝 Por Observação de Lote (Coluna L)"], horizontal=True)
 with col_busca_peca:
     busca_cod = st.text_input("🔍 Buscar Peça (código ou descrição em Produção ou Compras):").strip().upper()
 
 todos_tats = set()
 todas_obs = set()
 
-if df_cruz_tat is not None and not df_cruz_tat.empty:
-    todos_tats.update(df_cruz_tat["TAT_BASE"].dropna().unique())
-if df_comp is not None and not df_comp.empty:
-    todos_tats.update(df_comp["TAT_BASE"].dropna().unique())
+if df_cruz_tat is not None and not df_cruz_tat.empty: todos_tats.update(df_cruz_tat["TAT_BASE"].dropna().unique())
+if df_comp is not None and not df_comp.empty: todos_tats.update(df_comp["TAT_BASE"].dropna().unique())
 
-if df_cruz_obs is not None and not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns:
-    todas_obs.update(df_cruz_obs["OBS_NORM"].dropna().unique())
-if df_comp is not None and not df_comp.empty and "OBS_NORM" in df_comp.columns:
-    todas_obs.update(df_comp["OBS_NORM"].dropna().unique())
+if df_cruz_obs is not None and not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns: todas_obs.update(df_cruz_obs["OBS_NORM"].dropna().unique())
+if df_comp is not None and not df_comp.empty and "OBS_NORM" in df_comp.columns: todas_obs.update(df_comp["OBS_NORM"].dropna().unique())
 
 lista_projetos = sorted([str(p) for p in todos_tats if str(p).strip()])
 lista_obs = sorted([str(p) for p in todas_obs if str(p).strip()])
@@ -394,17 +341,10 @@ else:
 
 if busca_cod:
     if not df_trabalho.empty:
-        df_trabalho = df_trabalho[
-            df_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
-            df_trabalho["Descricao"].str.contains(busca_cod, na=False)
-        ]
+        df_trabalho = df_trabalho[df_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_trabalho["Descricao"].str.contains(busca_cod, na=False)]
     if not df_comp_trabalho.empty:
-        df_comp_trabalho = df_comp_trabalho[
-            df_comp_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
-            df_comp_trabalho["Descricao"].str.contains(busca_cod, na=False)
-        ]
+        df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_comp_trabalho["Descricao"].str.contains(busca_cod, na=False)]
 
-# Métricas consolidadas
 tot_op = int(df_trabalho["Qtd_OP"].sum()) if not df_trabalho.empty else 0
 tot_fab = int(df_trabalho["Qtd_Fabr"].sum()) if not df_trabalho.empty else 0
 tot_env = int(df_trabalho["Env_Pintura"].sum()) if not df_trabalho.empty else 0
@@ -435,76 +375,37 @@ def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
         df_exportar.to_excel(writer, index=False, sheet_name=nome_aba[:30])
     return output.getvalue()
 
-# --- ABAS DETALHADAS ---
 tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
-    "🏗️ Metálicos: Balanço Completo do Projeto",
-    "📈 Produção Mensal",
-    "✅ Peças Retornadas",
-    "🚨 Falta Retorno de Tratamento",
-    "🚚 Fabricadas Aguardando Envio",
-    "⚙️ Falta Fabricar Internamente",
-    "📦 Compras e Projetos Externados",
-    "📑 Base OP Fabricação",
-    "🎨 Base Romaneio Pintura",
-    "🛒 Base Compras Completa"
+    "🏗️ Metálicos: Balanço Completo do Projeto", "📈 Produção Mensal", "✅ Peças Retornadas", "🚨 Falta Retorno de Tratamento",
+    "🚚 Fabricadas Aguardando Envio", "⚙️ Falta Fabricar Internamente", "📦 Compras e Projetos Externados",
+    "📑 Base OP Fabricação", "🎨 Base Romaneio Pintura", "🛒 Base Compras Completa"
 ])
 
-# --- ABA UNIFICADA: BALANÇO COMPLETO DO PROJETO ---
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit:
-            st.markdown(f"**Balanço Metálico Completo ({len(df_trabalho)} itens) — {projeto_ativo_nome}**")
+        with c_tit: st.markdown(f"**Balanço Metálico Completo ({len(df_trabalho)} itens) — {projeto_ativo_nome}**")
         with c_btn:
-            st.download_button(
-                label="📥 Exportar Balanço Completo (.xlsx)",
-                data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"),
-                file_name="Balanco_Completo_Metalicos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
+            st.download_button("📥 Exportar Balanço Completo (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         colunas_balanco = ["TAT_BASE"]
         if "OBS_NORM" in df_trabalho.columns: colunas_balanco.append("OBS_NORM")
         colunas_balanco += ["COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Aguardando_Envio", "NF_Romaneio", "Data_Romaneio", "Status"]
+        st.dataframe(df_trabalho[colunas_balanco].rename(columns={"TAT_BASE": "Projeto/TAT", "OBS_NORM": "Observação de Lote", "COD_PECA": "Código da Peça", "Descricao": "Descrição", "Qtd_OP": "Total Programado (OP)", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Não Produziu (Falta Fabr.)", "Env_Pintura": "O que Saiu (Enviado)", "Ret_Pintura": "O que Voltou (Retornado)", "Saldo_Pendente_Pintura": "Falta Retornar (Saldo Rua)", "Aguardando_Envio": "Aguardando Despacho", "NF_Romaneio": "Romaneio / NF", "Data_Romaneio": "Data Movimento", "Status": "Status do Fluxo"}), use_container_width=True, hide_index=True)
+    else: st.info("Nenhum dado metálico encontrado para o filtro selecionado.")
 
-        st.dataframe(
-            df_trabalho[colunas_balanco].rename(columns={
-                "TAT_BASE": "Projeto/TAT", "OBS_NORM": "Observação de Lote", "COD_PECA": "Código da Peça",
-                "Descricao": "Descrição", "Qtd_OP": "Total Programado (OP)", "Qtd_Fabr": "Já Fabricado",
-                "Falta_Fabricar": "Não Produziu (Falta Fabr.)", "Env_Pintura": "O que Saiu (Enviado)",
-                "Ret_Pintura": "O que Voltou (Retornado)", "Saldo_Pendente_Pintura": "Falta Retornar (Saldo Rua)",
-                "Aguardando_Envio": "Aguardando Despacho", "NF_Romaneio": "Romaneio / NF",
-                "Data_Romaneio": "Data Movimento", "Status": "Status do Fluxo"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("Nenhum dado metálico encontrado para o filtro selecionado.")
-
-# --- 1. PRODUÇÃO MENSAL ---
 with tab_mensal:
     st.subheader("🗓️ Produção da Fábrica por Período")
     if not df_op.empty:
         col_f_ano, col_f_mes = st.columns(2)
         anos_disp = sorted([a for a in df_op["ANO"].dropna().unique() if len(str(a)) == 4])
         with col_f_ano: sel_anos = st.multiselect("🗓️ Flegar Ano(s):", anos_disp, default=anos_disp)
-            
         df_op_filtrada_data = df_op.copy()
         if sel_anos: df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["ANO"].isin(sel_anos)]
-            
         meses_disp = sorted([m for m in df_op_filtrada_data["MES"].dropna().unique() if str(m).isdigit()])
         with col_f_mes: sel_meses = st.multiselect("📅 Flegar Mês(es):", meses_disp, default=meses_disp)
-            
         if sel_meses: df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["MES"].isin(sel_meses)]
-            
-        df_mes_prod = df_op_filtrada_data.groupby("MES_ANO", as_index=False).agg(
-            Qtd_Planejada=("QTD_PLAN", "sum"),
-            Qtd_Produzida=("QTD_PROD", "sum"),
-            Total_OPs=("OP" if "OP" in df_op.columns else "COD_PECA", "nunique")
-        ).sort_values("MES_ANO")
+        df_mes_prod = df_op_filtrada_data.groupby("MES_ANO", as_index=False).agg(Qtd_Planejada=("QTD_PLAN", "sum"), Qtd_Produzida=("QTD_PROD", "sum"), Total_OPs=("OP" if "OP" in df_op.columns else "COD_PECA", "nunique")).sort_values("MES_ANO")
         df_mes_prod = df_mes_prod[df_mes_prod["MES_ANO"].str.contains(r'^\d{4}', regex=True, na=False)]
-        
         if not df_mes_prod.empty:
             col_g_mes, col_t_mes = st.columns([2, 1])
             with col_g_mes:
@@ -512,145 +413,60 @@ with tab_mensal:
                 st.bar_chart(df_mes_prod.set_index("MES_ANO")[["Qtd_Produzida", "Qtd_Planejada"]], color=["#1E88E5", "#90CAF9"])
             with col_t_mes:
                 st.markdown("**Tabela do Período Selecionado**")
-                df_mes_view = df_mes_prod.rename(columns={
-                    "MES_ANO": "Mês/Ano", "Qtd_Planejada": "Planejado", "Qtd_Produzida": "Fabricado", "Total_OPs": "Qtd OPs"
-                })
+                df_mes_view = df_mes_prod.rename(columns={"MES_ANO": "Mês/Ano", "Qtd_Planejada": "Planejado", "Qtd_Produzida": "Fabricado", "Total_OPs": "Qtd OPs"})
                 st.dataframe(df_mes_view, use_container_width=True, hide_index=True)
-                st.download_button(
-                    label="📥 Exportar Produção Mensal (.xlsx)",
-                    data=gerar_excel_tabela(df_mes_view, "Producao_Mensal"),
-                    file_name="Producao_Mensal.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-    else:
-        st.warning("Base de OP não carregada.")
+                st.download_button("📥 Exportar Produção Mensal (.xlsx)", data=gerar_excel_tabela(df_mes_view, "Producao_Mensal"), file_name="Producao_Mensal.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else: st.warning("Base de OP não carregada.")
 
-# --- 2. PEÇAS RETORNADAS ---
 with tab_retornadas:
     if not df_trabalho.empty:
         df_p2 = df_trabalho[df_trabalho["Ret_Pintura"] > 0].copy()
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit:
-            st.subheader(f"✅ Peças que já Retornaram ({len(df_p2)} itens | {tot_ret:,} peças)")
-        with c_btn:
-            st.download_button(
-                label="📥 Exportar Peças Retornadas (.xlsx)",
-                data=gerar_excel_tabela(df_p2, "Pecas_Retornadas"),
-                file_name="Pecas_Retornadas.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        with c_tit: st.subheader(f"✅ Peças que já Retornaram ({len(df_p2)} itens | {tot_ret:,} peças)")
+        with c_btn: st.download_button("📥 Exportar Peças Retornadas (.xlsx)", data=gerar_excel_tabela(df_p2, "Pecas_Retornadas"), file_name="Pecas_Retornadas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p2.empty:
             cols_ret = ["COD_PECA", "Descricao", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "NF_Romaneio", "Data_Romaneio", "Status"]
-            st.dataframe(
-                df_p2[cols_ret].rename(columns={
-                    "COD_PECA": "Código Peça", "Descricao": "Descrição",
-                    "Qtd_Fabr": "Fabricado", "Env_Pintura": "Enviado", "Ret_Pintura": "Retornado Pronto",
-                    "NF_Romaneio": "Notas Fiscais / Romaneio", "Data_Romaneio": "Data Retorno", "Status": "Status"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.info("ℹ️ Nenhuma peça com retorno registrado para este filtro.")
+            st.dataframe(df_p2[cols_ret].rename(columns={"COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Enviado", "Ret_Pintura": "Retornado Pronto", "NF_Romaneio": "Notas Fiscais / Romaneio", "Data_Romaneio": "Data Retorno", "Status": "Status"}), use_container_width=True, hide_index=True)
+        else: st.info("ℹ️ Nenhuma peça com retorno registrado para este filtro.")
 
-# --- 3. FALTA RETORNO DE TRATAMENTO ---
 with tab_pend_trat:
     if not df_trabalho.empty:
         df_p1 = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0].copy()
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit:
-            st.subheader(f"🚨 Falta Retorno de Tratamento Externo ({len(df_p1)} itens | {saldo_rua:,} peças)")
-        with c_btn:
-            st.download_button(
-                label="📥 Exportar Falta Retorno (.xlsx)",
-                data=gerar_excel_tabela(df_p1, "Falta_Retorno_Tratamento"),
-                file_name="Falta_Retorno_Tratamento.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        with c_tit: st.subheader(f"🚨 Falta Retorno de Tratamento Externo ({len(df_p1)} itens | {saldo_rua:,} peças)")
+        with c_btn: st.download_button("📥 Exportar Falta Retorno (.xlsx)", data=gerar_excel_tabela(df_p1, "Falta_Retorno_Tratamento"), file_name="Falta_Retorno_Tratamento.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p1.empty:
             cols_pen = ["COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "NF_Romaneio", "Data_Romaneio"]
-            st.dataframe(
-                df_p1[cols_pen].rename(columns={
-                    "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado",
-                    "Qtd_Fabr": "Fabricado", "Env_Pintura": "Enviado", "Ret_Pintura": "Retornado",
-                    "Saldo_Pendente_Pintura": "Falta Retorno (Saldo na Rua)",
-                    "NF_Romaneio": "Romaneio / NF Envio", "Data_Romaneio": "Data de Envio"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.success("🎉 Nenhuma peça pendente de retorno de tratamento para este filtro!")
+            st.dataframe(df_p1[cols_pen].rename(columns={"COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Enviado", "Ret_Pintura": "Retornado", "Saldo_Pendente_Pintura": "Falta Retorno (Saldo na Rua)", "NF_Romaneio": "Romaneio / NF Envio", "Data_Romaneio": "Data de Envio"}), use_container_width=True, hide_index=True)
+        else: st.success("🎉 Nenhuma peça pendente de retorno de tratamento para este filtro!")
 
-# --- 4. FABRICADAS AGUARDANDO ENVIO ---
 with tab_aguard_envio:
     if not df_trabalho.empty:
         df_p3 = df_trabalho[df_trabalho["Aguardando_Envio"] > 0].copy()
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit:
-            st.subheader(f"🚚 Peças Fabricadas Aguardando Envio ({len(df_p3)} itens | {falta_env:,} peças)")
-        with c_btn:
-            st.download_button(
-                label="📥 Exportar Aguardando Envio (.xlsx)",
-                data=gerar_excel_tabela(df_p3, "Aguardando_Envio"),
-                file_name="Fabricadas_Aguardando_Envio.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        with c_tit: st.subheader(f"🚚 Peças Fabricadas Aguardando Envio ({len(df_p3)} itens | {falta_env:,} peças)")
+        with c_btn: st.download_button("📥 Exportar Aguardando Envio (.xlsx)", data=gerar_excel_tabela(df_p3, "Aguardando_Envio"), file_name="Fabricadas_Aguardando_Envio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p3.empty:
             cols_env = ["COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Aguardando_Envio", "Data_Fabricacao"]
-            st.dataframe(
-                df_p3[cols_env].rename(columns={
-                    "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP",
-                    "Qtd_Fabr": "Fabricado", "Env_Pintura": "Já Enviado", "Aguardando_Envio": "Aguardando Despacho",
-                    "Data_Fabricacao": "Data Fabricação"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
+            st.dataframe(df_p3[cols_env].rename(columns={"COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Já Enviado", "Aguardando_Envio": "Aguardando Despacho", "Data_Fabricacao": "Data Fabricação"}), use_container_width=True, hide_index=True)
+        else: st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
 
-# --- 5. FALTA FABRICAR INTERNAMENTE ---
 with tab_falta_fab:
     if not df_trabalho.empty:
         df_p4 = df_trabalho[df_trabalho["Falta_Fabricar"] > 0].copy()
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit:
-            st.subheader(f"⚙️ Peças que Faltam Ser Fabricadas ({len(df_p4)} itens | {falta_fab:,} peças)")
-        with c_btn:
-            st.download_button(
-                label="📥 Exportar Falta Fabricar (.xlsx)",
-                data=gerar_excel_tabela(df_p4, "Falta_Fabricar"),
-                file_name="Falta_Fabricar_Internamente.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        with c_tit: st.subheader(f"⚙️ Peças que Faltam Ser Fabricadas ({len(df_p4)} itens | {falta_fab:,} peças)")
+        with c_btn: st.download_button("📥 Exportar Falta Fabricar (.xlsx)", data=gerar_excel_tabela(df_p4, "Falta_Fabricar"), file_name="Falta_Fabricar_Internamente.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p4.empty:
             cols_fab = ["COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar"]
-            st.dataframe(
-                df_p4[cols_fab].rename(columns={
-                    "COD_PECA": "Código Peça", "Descricao": "Descrição",
-                    "Qtd_OP": "Programado OP", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Saldo a Produzir"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
+            st.dataframe(df_p4[cols_fab].rename(columns={"COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Saldo a Produzir"}), use_container_width=True, hide_index=True)
+        else: st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
 
-# --- 6. COMPRAS E PROJETOS EXTERNADOS ---
 with tab_compras:
     if not df_comp_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit:
-            st.subheader(f"📦 Compras e Projetos Externados ({len(df_comp_trabalho)} itens | {tot_entregue:,} de {tot_comprado:,} entregues)")
-        with c_btn:
-            st.download_button(
-                label="📥 Exportar Compras Filtradas (.xlsx)",
-                data=gerar_excel_tabela(df_comp_trabalho, "Compras_Externas"),
-                file_name="Compras_Projetos_Externados.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
+        with c_tit: st.subheader(f"📦 Compras e Projetos Externados ({len(df_comp_trabalho)} itens | {tot_entregue:,} de {tot_comprado:,} entregues)")
+        with c_btn: st.download_button("📥 Exportar Compras Filtradas (.xlsx)", data=gerar_excel_tabela(df_comp_trabalho, "Compras_Externas"), file_name="Compras_Projetos_Externados.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         col_forn_f, col_st_f = st.columns(2)
         with col_forn_f:
             fornecedores = sorted([str(f) for f in df_comp_trabalho["Fornecedor"].unique() if str(f).strip()])
@@ -658,68 +474,33 @@ with tab_compras:
         with col_st_f:
             status_comp = sorted([str(s) for s in df_comp_trabalho["Status_Compra"].unique() if str(s).strip()])
             sel_st_comp = st.multiselect("Filtrar por Status de Entrega:", status_comp, default=[])
-
         df_comp_view = df_comp_trabalho.copy()
         if sel_forn: df_comp_view = df_comp_view[df_comp_view["Fornecedor"].isin(sel_forn)]
         if sel_st_comp: df_comp_view = df_comp_view[df_comp_view["Status_Compra"].isin(sel_st_comp)]
-
         colunas_comp = ["TAT_BASE", "OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
-        st.dataframe(
-            df_comp_view[colunas_comp].rename(columns={
-                "TAT_BASE": "Projeto/TAT (K)", "OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)",
-                "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)",
-                "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)",
-                "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.info("Nenhuma planilha de Compras Externas carregada ou nenhum item encontrado para o filtro selecionado.")
+        st.dataframe(df_comp_view[colunas_comp].rename(columns={"TAT_BASE": "Projeto/TAT (K)", "OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)", "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)", "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)", "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
+    else: st.info("Nenhuma planilha de Compras Externas carregada ou nenhum item encontrado para o filtro selecionado.")
 
-# --- 7. BASE OP COMPLETA ---
 with tab_base_op:
     st.subheader("📑 Base Completa: OP Fabricação")
     if not df_op_raw.empty:
-        st.download_button(
-            label="📥 Exportar Base OP (.xlsx)",
-            data=gerar_excel_tabela(df_op_raw, "Base_OP"),
-            file_name="Base_OP_Fabricacao.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        if busca_cod:
-            st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_op_raw, use_container_width=True, hide_index=True)
+        st.download_button("📥 Exportar Base OP (.xlsx)", data=gerar_excel_tabela(df_op_raw, "Base_OP"), file_name="Base_OP_Fabricacao.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        if busca_cod: st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
+        else: st.dataframe(df_op_raw, use_container_width=True, hide_index=True)
 
-# --- 8. BASE ROMANEIO COMPLETA ---
 with tab_base_rom:
     st.subheader("🎨 Base Completa: Romaneio de Pintura")
     if not df_rom_raw.empty:
-        st.download_button(
-            label="📥 Exportar Base Romaneio (.xlsx)",
-            data=gerar_excel_tabela(df_rom_raw, "Base_Romaneio"),
-            file_name="Base_Romaneio_Pintura.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        if busca_cod:
-            st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_rom_raw, use_container_width=True, hide_index=True)
+        st.download_button("📥 Exportar Base Romaneio (.xlsx)", data=gerar_excel_tabela(df_rom_raw, "Base_Romaneio"), file_name="Base_Romaneio_Pintura.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        if busca_cod: st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
+        else: st.dataframe(df_rom_raw, use_container_width=True, hide_index=True)
 
-# --- 9. BASE COMPRAS COMPLETA ---
 with tab_base_comp:
     st.subheader("🛒 Base Completa: Compras e Alinhamento Externo")
     if not df_comp_raw.empty:
-        st.download_button(
-            label="📥 Exportar Base Compras (.xlsx)",
-            data=gerar_excel_tabela(df_comp_raw, "Base_Compras"),
-            file_name="Base_Compras_Completa.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button("📥 Exportar Base Compras (.xlsx)", data=gerar_excel_tabela(df_comp_raw, "Base_Compras"), file_name="Base_Compras_Completa.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if busca_cod:
             col_busca_prod = [c for c in df_comp_raw.columns if "PROD" in str(c).upper() or "COD" in str(c).upper()]
             col_target = col_busca_prod[0] if col_busca_prod else df_comp_raw.columns[2]
             st.dataframe(df_comp_raw[df_comp_raw[col_target].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(df_comp_raw, use_container_width=True, hide_index=True)
+        else: st.dataframe(df_comp_raw, use_container_width=True, hide_index=True)
