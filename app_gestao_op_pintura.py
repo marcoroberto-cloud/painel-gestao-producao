@@ -14,17 +14,15 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS: Seleção/cópia de texto liberada em 100% da tela, Sticky Header e layout compacto
+# Estilização CSS: Seleção/cópia liberada, cabeçalho congelado e layout compacto
 st.markdown("""
 <style>
-    /* Permite selecionar e copiar qualquer texto na página */
     * {
         user-select: text !important;
         -webkit-user-select: text !important;
         -moz-user-select: text !important;
         -ms-user-select: text !important;
     }
-    
     .block-container {
         padding-top: 0.8rem !important;
         padding-bottom: 2rem !important;
@@ -47,13 +45,13 @@ st.markdown("""
     }
     
     [data-testid="stMetricValue"] {
-        font-size: 1.10rem !important;
+        font-size: 1.05rem !important;
         font-weight: 700 !important;
         color: #1E88E5 !important;
         line-height: 1.1 !important;
     }
-    [data-testid="stMetricLabel"] { font-size: 0.73rem !important; line-height: 1.1 !important; }
-    [data-testid="stMetricDelta"] { font-size: 0.70rem !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.72rem !important; line-height: 1.1 !important; }
+    [data-testid="stMetricDelta"] { font-size: 0.68rem !important; }
     
     div[data-baseweb="select"] * { font-size: 0.75rem !important; white-space: normal !important; word-break: break-word !important; }
     div[data-baseweb="tag"] { max-width: 100% !important; height: auto !important; white-space: normal !important; word-break: break-word !important; padding: 2px 6px !important; margin: 1px 0 !important; line-height: 1.2 !important; }
@@ -61,8 +59,8 @@ st.markdown("""
     
     ul[data-baseweb="menu"] li, div[data-baseweb="popover"] * { font-size: 0.75rem !important; line-height: 1.25 !important; white-space: normal !important; word-break: break-word !important; padding-top: 4px !important; padding-bottom: 4px !important; }
     
-    .stTabs [data-baseweb="tab-list"] { gap: 6px; }
-    .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.80rem; padding: 0 10px; }
+    .stTabs [data-baseweb="tab-list"] { gap: 4px; }
+    .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.78rem; padding: 0 8px; }
     
     [data-testid="stDataFrame"] { width: 100% !important; }
 </style>
@@ -119,7 +117,6 @@ def formatar_data_br(val):
         return s[:10]
     return s
 
-# Mapeamento oficial dos fornecedores de tratamento
 def padronizar_fornecedor_romaneio(val):
     if pd.isna(val) or not str(val).strip() or str(val).strip() == "-":
         return "-"
@@ -146,13 +143,12 @@ def padronizar_fornecedor_romaneio(val):
         return m.group(1).strip()
     return t
 
-def ler_excel_rapido(fonte):
+def ler_excel_rapido(fonte, sheet_name=0):
     try:
-        return pd.read_excel(fonte, engine="calamine")
+        return pd.read_excel(fonte, sheet_name=sheet_name, engine="calamine")
     except Exception:
-        return pd.read_excel(fonte)
+        return pd.read_excel(fonte, sheet_name=sheet_name)
 
-# Sanitização limpa e segura (sem regex que gere null bytes no código-fonte)
 def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
     output = io.BytesIO()
     if df_exportar.empty:
@@ -189,7 +185,7 @@ with col_head_tit:
 
 with col_head_up:
     arquivos_enviados = st.file_uploader(
-        "📁 Carregar novas planilhas (ficarão salvas para todos):", 
+        "📁 Carregar planilhas (OP, Romaneio, Compras e SC):", 
         type=["xlsx", "xls", "csv"], 
         accept_multiple_files=True
     )
@@ -204,22 +200,49 @@ if arquivos_enviados:
         for f in arquivos_enviados:
             try:
                 file_bytes = f.getvalue()
-                df_teste = pd.read_excel(io.BytesIO(file_bytes), nrows=5) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes), nrows=5)
-                cols = [str(c).upper() for c in df_teste.columns]
-                fname = f.name.upper()
+                
+                # Se for arquivo Excel, checa todas as abas
+                if not f.name.endswith('.csv'):
+                    xl = pd.ExcelFile(io.BytesIO(file_bytes))
+                    sheet_names = [s.upper() for s in xl.sheet_names]
+                    
+                    for s_name in xl.sheet_names:
+                        df_sheet = pd.read_excel(io.BytesIO(file_bytes), sheet_name=s_name, nrows=5)
+                        cols = [str(c).upper() for c in df_sheet.columns]
+                        s_upper = s_name.upper()
+                        f_upper = f.name.upper()
 
-                caminho_salvar = None
-                if any("CLIENTE" in c for c in cols) or any("DOC.ORIG" in c for c in cols) or any("COD.PINTURA" in c for c in cols) or "ROMANEIO" in fname or "PLANIL" in fname:
-                    caminho_salvar = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
-                elif any("QTD ENTREGUE" in c for c in cols) or any("DATA FORNECEDOR" in c for c in cols) or "COMPRA" in fname or "EXTERNO" in fname:
-                    caminho_salvar = os.path.join(STORAGE_DIR, "base_compras.parquet")
-                elif any("PRODUZID" in c for c in cols) or any("CLASSE VALOR" in c for c in cols) or "OP" in fname or "FABRICA" in fname:
-                    caminho_salvar = os.path.join(STORAGE_DIR, "base_op.parquet")
+                        caminho_salvar = None
+                        if any("SOLICITA" in c for c in cols) or "SC" in s_upper or "SOLICITA" in s_upper:
+                            caminho_salvar = os.path.join(STORAGE_DIR, "base_sc.parquet")
+                        elif (any("CLIENTE" in c for c in cols) or any("DOC.ORIG" in c for c in cols) or any("COD.PINTURA" in c for c in cols) or "ROMANEIO" in f_upper or "PLANIL" in f_upper) and not any("SOLICITA" in c for c in cols):
+                            caminho_salvar = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
+                        elif any("QTD ENTREGUE" in c for c in cols) or any("DATA FORNECEDOR" in c for c in cols) or "COMPRA" in f_upper or "EXTERNO" in f_upper:
+                            caminho_salvar = os.path.join(STORAGE_DIR, "base_compras.parquet")
+                        elif any("PRODUZID" in c for c in cols) or any("CLASSE VALOR" in c for c in cols) or "OP" in f_upper or "FABRICA" in f_upper:
+                            caminho_salvar = os.path.join(STORAGE_DIR, "base_op.parquet")
 
-                if caminho_salvar:
-                    df_completo = ler_excel_rapido(io.BytesIO(file_bytes)) if not f.name.endswith('.csv') else pd.read_csv(io.BytesIO(file_bytes))
-                    df_completo = df_completo.astype(str)
-                    df_completo.to_parquet(caminho_salvar, index=False)
+                        if caminho_salvar:
+                            df_completo = ler_excel_rapido(io.BytesIO(file_bytes), sheet_name=s_name)
+                            df_completo = df_completo.astype(str)
+                            df_completo.to_parquet(caminho_salvar, index=False)
+                else:
+                    df_csv = pd.read_csv(io.BytesIO(file_bytes), nrows=5)
+                    cols = [str(c).upper() for c in df_csv.columns]
+                    f_upper = f.name.upper()
+                    caminho_salvar = None
+                    if any("SOLICITA" in c for c in cols) or "SC" in f_upper:
+                        caminho_salvar = os.path.join(STORAGE_DIR, "base_sc.parquet")
+                    elif any("CLIENTE" in c for c in cols) or any("DOC.ORIG" in c for c in cols) or any("COD.PINTURA" in c for c in cols):
+                        caminho_salvar = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
+                    elif any("QTD ENTREGUE" in c for c in cols) or any("DATA FORNECEDOR" in c for c in cols):
+                        caminho_salvar = os.path.join(STORAGE_DIR, "base_compras.parquet")
+                    elif any("PRODUZID" in c for c in cols):
+                        caminho_salvar = os.path.join(STORAGE_DIR, "base_op.parquet")
+                        
+                    if caminho_salvar:
+                        df_completo = pd.read_csv(io.BytesIO(file_bytes)).astype(str)
+                        df_completo.to_parquet(caminho_salvar, index=False)
             except Exception as e:
                 st.error(f"Erro ao processar {f.name}: {e}")
                 
@@ -230,13 +253,15 @@ if arquivos_enviados:
 caminho_op_pqt = os.path.join(STORAGE_DIR, "base_op.parquet")
 caminho_rom_pqt = os.path.join(STORAGE_DIR, "base_romaneio.parquet")
 caminho_comp_pqt = os.path.join(STORAGE_DIR, "base_compras.parquet")
+caminho_sc_pqt = os.path.join(STORAGE_DIR, "base_sc.parquet")
 
 df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
 df_rom_raw = pd.read_parquet(caminho_rom_pqt) if os.path.exists(caminho_rom_pqt) else pd.DataFrame()
 df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
+df_sc_raw = pd.read_parquet(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else pd.DataFrame()
 
-if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty:
-    st.info("👆 Nenhuma planilha salva ainda. Selecione os 3 arquivos no campo acima para carregar o painel.")
+if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empty:
+    st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
 def buscar_col_flex(df, lista_padroes, excluir_padroes=None):
@@ -289,7 +314,6 @@ if not df_rom_raw.empty:
     col_qtd_rom = buscar_col_flex(df_rom_raw, ["QTD", "QT", "QUANTIDADE"], excluir_padroes=["RET"])
     col_ret_rom = buscar_col_flex(df_rom_raw, ["QT RET", "QT_RET", "RETORNADO", "QTD RET"])
     col_saldo_rom = buscar_col_flex(df_rom_raw, ["SALDO", "SALD", "SALDO "])
-    
     col_forn_rom = buscar_col_flex(df_rom_raw, ["CLIENTE/FORN", "CLIENTE/FC", "CLIENTE / FORN", "CLIENTE", "FORNECEDOR"], excluir_padroes=["PROD", "COD", "COR", "PECA", "PEÇA", "DESC", "PINTURA"])
     col_doc_rom = buscar_col_flex(df_rom_raw, ["DOC.ORIGINAL", "DOC.ORIGIR", "DOC.ORIGEM", "DOC ORIGEM", "ROMANEIO", "Nº ROMANEIO", "DOC"])
     col_dt_envio_rom = buscar_col_flex(df_rom_raw, ["DT EMISSÃO", "DT EMISSÃ", "DT EMISSAO", "DT. EMISSAO", "DATA EMISSAO", "DATA ENVIO", "DT ENVIO"])
@@ -345,7 +369,40 @@ if not df_comp_raw.empty:
         else: return "⏳ Aguardando Fornecedor"
     df_comp["Status_Compra"] = df_comp.apply(calc_status_compra, axis=1)
 
-# --- CRUZAMENTO DE DADOS COM FORNECEDORES, NF E DATAS DE ENVIO ---
+# --- PROCESSAMENTO SOLICITAÇÕES DE COMPRAS (SC EM ABERTO) ---
+df_sc = pd.DataFrame()
+if not df_sc_raw.empty:
+    col_filial_sc = buscar_col_flex(df_sc_raw, ["FILIAL"])
+    col_num_sc = buscar_col_flex(df_sc_raw, ["Nº SOLICITAÇÃO", "NUM SOLICITACAO", "SOLICITACAO", "SC", "Nº SC"])
+    col_item_sc = buscar_col_flex(df_sc_raw, ["ITEM"])
+    col_prod_sc = buscar_col_flex(df_sc_raw, ["PRODUTO", "COD PROD", "CODIGO"])
+    col_um_sc = buscar_col_flex(df_sc_raw, ["UM", "UN"])
+    col_desc_sc = buscar_col_flex(df_sc_raw, ["DESCRIÇÃO", "DESCRICAO"])
+    col_qtd_sc = buscar_col_flex(df_sc_raw, ["QTDE DA SC", "QTD SC", "QUANTIDADE", "QTD"])
+    col_nec_sc = buscar_col_flex(df_sc_raw, ["NECESSIDADE", "DT NECESSIDADE", "DATA NECESSIDADE"])
+    col_obs_sc = buscar_col_flex(df_sc_raw, ["OBSERVAÇÃO", "OBSERVACAO", "OBSERVAÇÃ", "OBS"])
+    col_emis_sc = buscar_col_flex(df_sc_raw, ["EMISSÃO", "EMISSAO", "DT EMISSAO"])
+    col_solic_sc = buscar_col_flex(df_sc_raw, ["SOLICITANTE", "NOME SOLICITANTE"])
+    col_classe_sc = buscar_col_flex(df_sc_raw, ["CLASSE VALOR", "CLASSE"])
+    col_ped_sc = buscar_col_flex(df_sc_raw, ["PEDIDO", "NUM PEDIDO"])
+
+    df_sc = df_sc_raw.copy()
+    df_sc["OBS_NORM"] = df_sc[col_obs_sc].apply(normalizar_texto) if col_obs_sc else ""
+    df_sc["TAT_BASE"] = df_sc[col_obs_sc].apply(extrair_tat_base) if col_obs_sc else ""
+    df_sc["COD_PECA"] = df_sc[col_prod_sc].apply(limpar_cod) if col_prod_sc else ""
+    df_sc["Filial"] = df_sc[col_filial_sc].fillna("-").astype(str) if col_filial_sc else "-"
+    df_sc["Num_SC"] = df_sc[col_num_sc].fillna("-").astype(str) if col_num_sc else "-"
+    df_sc["Item"] = df_sc[col_item_sc].fillna("-").astype(str) if col_item_sc else "-"
+    df_sc["UM"] = df_sc[col_um_sc].fillna("PC").astype(str) if col_um_sc else "PC"
+    df_sc["Descricao"] = df_sc[col_desc_sc].fillna("-").astype(str) if col_desc_sc else "-"
+    df_sc["Qtd_SC"] = df_sc[col_qtd_sc].apply(converter_num) if col_qtd_sc else 0.0
+    df_sc["Necessidade"] = df_sc[col_nec_sc].apply(formatar_data_br) if col_nec_sc else "-"
+    df_sc["Emissao"] = df_sc[col_emis_sc].apply(formatar_data_br) if col_emis_sc else "-"
+    df_sc["Solicitante"] = df_sc[col_solic_sc].fillna("-").astype(str) if col_solic_sc else "-"
+    df_sc["Classe_Valor"] = df_sc[col_classe_sc].fillna("-").astype(str) if col_classe_sc else "-"
+    df_sc["Pedido"] = df_sc[col_ped_sc].fillna("-").astype(str) if col_ped_sc else "-"
+
+# --- CRUZAMENTO DE DADOS ---
 op_obs = df_op.groupby(["TAT_BASE", "OBS_NORM", "COD_PECA"], as_index=False).agg(
     Descricao=("DESC_PECA", "first"),
     Qtd_OP=("QTD_PLAN", "sum"),
@@ -394,9 +451,7 @@ for df in [df_cruz_obs, df_cruz_tat]:
         if col not in df.columns: df[col] = 0.0
         df[col] = df[col].fillna(0.0).astype(float)
     
-    # Se a peça não saiu para tratamento (Env_Pintura == 0), deixa o fornecedor limpo
     df.loc[df["Env_Pintura"] == 0, "Fornecedor_Tratamento"] = "-"
-    
     df["Saldo_Pendente_Pintura"] = (df["Env_Pintura"] - df["Ret_Pintura"]).clip(lower=0.0)
     df["Aguardando_Envio"] = (df["Qtd_Fabr"] - df["Env_Pintura"]).clip(lower=0.0)
     df["Falta_Fabricar"] = (df["Qtd_OP"] - df["Qtd_Fabr"]).clip(lower=0.0)
@@ -417,47 +472,48 @@ col_modo, col_busca_peca = st.columns([1, 2])
 with col_modo:
     modo_visao = st.radio("Modo de Agrupamento:", ["📌 Por Projeto / TAT Geral (Coluna K)", "📝 Por Observação de Lote (Coluna L)"], horizontal=True)
 with col_busca_peca:
-    busca_cod = st.text_input("🔍 Buscar Peça (código ou descrição em Produção ou Compras):").strip().upper()
+    busca_cod = st.text_input("🔍 Buscar Peça (código ou descrição em Produção, Compras ou SC):").strip().upper()
 
 todos_tats = set()
 todas_obs = set()
 
 if df_cruz_tat is not None and not df_cruz_tat.empty: todos_tats.update(df_cruz_tat["TAT_BASE"].dropna().unique())
 if df_comp is not None and not df_comp.empty: todos_tats.update(df_comp["TAT_BASE"].dropna().unique())
+if df_sc is not None and not df_sc.empty: todos_tats.update(df_sc["TAT_BASE"].dropna().unique())
 
 if df_cruz_obs is not None and not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns: todas_obs.update(df_cruz_obs["OBS_NORM"].dropna().unique())
 if df_comp is not None and not df_comp.empty and "OBS_NORM" in df_comp.columns: todas_obs.update(df_comp["OBS_NORM"].dropna().unique())
+if df_sc is not None and not df_sc.empty and "OBS_NORM" in df_sc.columns: todas_obs.update(df_sc["OBS_NORM"].dropna().unique())
 
 lista_projetos = sorted([str(p) for p in todos_tats if str(p).strip()])
 lista_obs = sorted([str(p) for p in todas_obs if str(p).strip()])
 
 df_trabalho = df_cruz_tat.copy() if modo_visao.startswith("📌") else (df_cruz_obs.copy() if df_cruz_obs is not None else pd.DataFrame())
 df_comp_trabalho = df_comp.copy() if df_comp is not None else pd.DataFrame()
+df_sc_trabalho = df_sc.copy() if df_sc is not None else pd.DataFrame()
 
 if modo_visao.startswith("📌"):
     sel_projs = st.multiselect("📌 Flegar Projeto(s) / TAT (Coluna K):", lista_projetos, default=[])
     if sel_projs:
         if not df_trabalho.empty: df_trabalho = df_trabalho[df_trabalho["TAT_BASE"].isin(sel_projs)]
         if not df_comp_trabalho.empty: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["TAT_BASE"].isin(sel_projs)]
+        if not df_sc_trabalho.empty: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["TAT_BASE"].isin(sel_projs)]
     projeto_ativo_nome = ", ".join(sel_projs) if sel_projs else "Todos os Projetos"
 else:
     sel_obs_multi = st.multiselect("📝 Flegar Observação(ões) de Lote (Coluna L):", lista_obs, default=[])
     if sel_obs_multi:
         if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns: df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
         if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi)]
+        if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi)]
     projeto_ativo_nome = ", ".join(sel_obs_multi) if sel_obs_multi else "Todas as Observações"
 
 if busca_cod:
     if not df_trabalho.empty:
-        df_trabalho = df_trabalho[
-            df_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
-            df_trabalho["Descricao"].str.contains(busca_cod, na=False)
-        ]
+        df_trabalho = df_trabalho[df_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_trabalho["Descricao"].str.contains(busca_cod, na=False)]
     if not df_comp_trabalho.empty:
-        df_comp_trabalho = df_comp_trabalho[
-            df_comp_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
-            df_comp_trabalho["Descricao"].str.contains(busca_cod, na=False)
-        ]
+        df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_comp_trabalho["Descricao"].str.contains(busca_cod, na=False)]
+    if not df_sc_trabalho.empty:
+        df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_sc_trabalho["Descricao"].str.contains(busca_cod, na=False)]
 
 tot_op = int(df_trabalho["Qtd_OP"].sum()) if not df_trabalho.empty else 0
 tot_fab = int(df_trabalho["Qtd_Fabr"].sum()) if not df_trabalho.empty else 0
@@ -471,23 +527,27 @@ tot_comprado = int(df_comp_trabalho["Qtd_Comprada"].sum()) if not df_comp_trabal
 tot_entregue = int(df_comp_trabalho["Qtd_Entregue"].sum()) if not df_comp_trabalho.empty else 0
 saldo_compra = int(df_comp_trabalho["Saldo_Falta_Entregar"].sum()) if not df_comp_trabalho.empty else 0
 
+tot_sc_aberto = int(df_sc_trabalho["Qtd_SC"].sum()) if not df_sc_trabalho.empty else 0
+qtd_itens_sc = len(df_sc_trabalho) if not df_sc_trabalho.empty else 0
+
 pct_fab = (tot_fab / tot_op * 100) if tot_op > 0 else 0
 pct_ret = (tot_ret / tot_op * 100) if tot_op > 0 else 0
 
-c1, c2, c3, c4, c5 = st.columns(5)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("1. Programado (OP)", f"{tot_op:,} pçs", f"Falta Fabr: {falta_fab:,} pçs", delta_color="inverse" if falta_fab > 0 else "normal")
 c2.metric("2. Fabricado Interno", f"{tot_fab:,} pçs", f"{pct_fab:.1f}% Produzido")
-c3.metric("3. Enviado p/ Tratamento", f"{tot_env:,} pçs", f"Aguardando Envio: {falta_env:,} pçs", delta_color="inverse" if falta_env > 0 else "normal")
+c3.metric("3. Enviado Tratamento", f"{tot_env:,} pçs", f"Aguardando: {falta_env:,} pçs", delta_color="inverse" if falta_env > 0 else "normal")
 c4.metric("4. Retornado (Pronto)", f"{tot_ret:,} pçs", f"Falta Voltar: {saldo_rua:,} pçs", delta_color="inverse" if saldo_rua > 0 else "normal")
-c5.metric("5. Compras Externas", f"{tot_entregue:,} / {tot_comprado:,} pçs", f"Falta Entregar: {saldo_compra:,} pçs", delta_color="inverse" if saldo_compra > 0 else "normal")
+c5.metric("5. Compras Externas", f"{tot_entregue:,} / {tot_comprado:,} pçs", f"Falta: {saldo_compra:,} pçs", delta_color="inverse" if saldo_compra > 0 else "normal")
+c6.metric("6. SC em Aberto", f"{tot_sc_aberto:,} pçs", f"{qtd_itens_sc} solicitações", delta_color="inverse" if tot_sc_aberto > 0 else "normal")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
 # --- ABAS DETALHADAS ---
-tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
-    "🏗️ Metálicos: Balanço Completo do Projeto", "📈 Produção Mensal", "✅ Peças Retornadas", "🚨 Falta Retorno de Tratamento",
-    "🚚 Fabricadas Aguardando Envio", "⚙️ Falta Fabricar Internamente", "📦 Compras e Projetos Externados",
-    "📑 Base OP Fabricação", "🎨 Base Romaneio Pintura", "🛒 Base Compras Completa"
+tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_sc, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
+    "🏗️ Balanço Metálico", "📈 Produção Mensal", "✅ Peças Retornadas", "🚨 Falta Retorno",
+    "🚚 Aguardando Envio", "⚙️ Falta Fabricar", "📦 Compras Externas",
+    "📋 SC em Aberto", "📑 Base OP", "🎨 Base Romaneio", "🛒 Base Compras"
 ])
 
 # 1. BALANÇO COMPLETO METÁLICOS
@@ -496,7 +556,7 @@ with tab_metalicos:
         c_tit, c_btn = st.columns([4, 1])
         with c_tit: st.markdown(f"**Balanço Metálico Completo ({len(df_trabalho)} itens) — {projeto_ativo_nome}**")
         with c_btn:
-            st.download_button("📥 Exportar Balanço Completo (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.download_button("📥 Exportar Balanço (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
         colunas_balanco = ["Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Aguardando_Envio", "NF_Romaneio", "Data_Romaneio", "Status"]
         
@@ -545,7 +605,6 @@ with tab_mensal:
 with tab_retornadas:
     if not df_trabalho.empty:
         df_p2 = df_trabalho[df_trabalho["Ret_Pintura"] > 0].copy()
-        
         forns_ret = sorted([f for f in df_p2["Fornecedor_Tratamento"].unique() if f != "-"])
         if forns_ret:
             sel_forn_ret = st.multiselect("Filtrar por Fornecedor (Quem entregou):", forns_ret, default=[])
@@ -575,7 +634,6 @@ with tab_retornadas:
 with tab_pend_trat:
     if not df_trabalho.empty:
         df_p1 = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0].copy()
-        
         forns_pend = sorted([f for f in df_p1["Fornecedor_Tratamento"].unique() if f != "-"])
         if forns_pend:
             sel_forn_pend = st.multiselect("Filtrar por Fornecedor (Onde a peça está):", forns_pend, default=[])
@@ -647,9 +705,44 @@ with tab_compras:
         if sel_st_comp: df_comp_view = df_comp_view[df_comp_view["Status_Compra"].isin(sel_st_comp)]
         colunas_comp = ["TAT_BASE", "OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
         st.dataframe(df_comp_view[colunas_comp].rename(columns={"TAT_BASE": "Projeto/TAT (K)", "OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)", "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)", "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)", "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
-    else: st.info("Nenhuma planilha de Compras Externas carregada ou nenhum item encontrado para o filtro selecionado.")
+    else: st.info("Nenhuma planilha de Compras carregada ou nenhum item encontrado para o filtro selecionado.")
 
-# 8. BASE OP COMPLETA
+# 8. SOLICITAÇÕES DE COMPRAS (SC EM ABERTO)
+with tab_sc:
+    if not df_sc_trabalho.empty:
+        c_tit, c_btn = st.columns([4, 1])
+        with c_tit: st.subheader(f"📋 Solicitações de Compras em Aberto ({len(df_sc_trabalho)} itens | {tot_sc_aberto:,} peças)")
+        with c_btn:
+            st.download_button("📥 Exportar SC Filtradas (.xlsx)", data=gerar_excel_tabela(df_sc_trabalho, "SC_Em_Aberto"), file_name="Solicitacoes_Compras_Aberto.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            
+        col_solic_f, col_ped_f = st.columns(2)
+        with col_solic_f:
+            solicitantes = sorted([str(s) for s in df_sc_trabalho["Solicitante"].unique() if str(s).strip() and str(s) != "-"])
+            sel_solic = st.multiselect("Filtrar por Solicitante:", solicitantes, default=[])
+        with col_ped_f:
+            pedidos_sc = sorted([str(p) for p in df_sc_trabalho["Pedido"].unique() if str(p).strip() and str(p) != "-"])
+            sel_ped_sc = st.multiselect("Filtrar por Pedido Vinculado:", pedidos_sc, default=[])
+            
+        df_sc_view = df_sc_trabalho.copy()
+        if sel_solic: df_sc_view = df_sc_view[df_sc_view["Solicitante"].isin(sel_solic)]
+        if sel_ped_sc: df_sc_view = df_sc_view[df_sc_view["Pedido"].isin(sel_ped_sc)]
+        
+        colunas_sc = ["Filial", "Num_SC", "Item", "COD_PECA", "UM", "Descricao", "Qtd_SC", "Necessidade", "OBS_NORM", "Emissao", "Pedido", "Solicitante", "Classe_Valor"]
+        st.dataframe(
+            df_sc_view[colunas_sc].rename(columns={
+                "Filial": "Filial", "Num_SC": "Nº Solicitação", "Item": "Item",
+                "COD_PECA": "Produto", "UM": "UM", "Descricao": "Descrição",
+                "Qtd_SC": "Qtde da SC", "Necessidade": "Necessidade", "OBS_NORM": "Observação",
+                "Emissao": "Emissão", "Pedido": "Pedido", "Solicitante": "Solicitante",
+                "Classe_Valor": "Classe Valor"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Nenhuma Solicitação de Compras em aberto carregada ou nenhum item encontrado para o filtro selecionado.")
+
+# 9. BASE OP COMPLETA
 with tab_base_op:
     st.subheader("📑 Base Completa: OP Fabricação")
     if not df_op_raw.empty:
@@ -657,7 +750,7 @@ with tab_base_op:
         if busca_cod: st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
         else: st.dataframe(df_op_raw, use_container_width=True, hide_index=True)
 
-# 9. BASE ROMANEIO COMPLETA
+# 10. BASE ROMANEIO COMPLETA
 with tab_base_rom:
     st.subheader("🎨 Base Completa: Romaneio de Pintura")
     if not df_rom_raw.empty:
@@ -665,7 +758,7 @@ with tab_base_rom:
         if busca_cod: st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
         else: st.dataframe(df_rom_raw, use_container_width=True, hide_index=True)
 
-# 10. BASE COMPRAS COMPLETA
+# 11. BASE COMPRAS COMPLETA
 with tab_base_comp:
     st.subheader("🛒 Base Completa: Compras e Alinhamento Externo")
     if not df_comp_raw.empty:
