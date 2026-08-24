@@ -117,6 +117,7 @@ def formatar_data_br(val):
         return s[:10]
     return s
 
+# Mapeamento oficial e definitivo dos fornecedores de tratamento
 def padronizar_fornecedor_romaneio(val):
     if pd.isna(val) or not str(val).strip() or str(val).strip() == "-":
         return "-"
@@ -517,11 +518,20 @@ else:
 
 if busca_cod:
     if not df_trabalho.empty:
-        df_trabalho = df_trabalho[df_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_trabalho["Descricao"].str.contains(busca_cod, na=False)]
+        df_trabalho = df_trabalho[
+            df_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
+            df_trabalho["Descricao"].str.contains(busca_cod, na=False)
+        ]
     if not df_comp_trabalho.empty:
-        df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_comp_trabalho["Descricao"].str.contains(busca_cod, na=False)]
+        df_comp_trabalho = df_comp_trabalho[
+            df_comp_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
+            df_comp_trabalho["Descricao"].str.contains(busca_cod, na=False)
+        ]
     if not df_sc_trabalho.empty:
-        df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | df_sc_trabalho["Descricao"].str.contains(busca_cod, na=False)]
+        df_sc_trabalho = df_sc_trabalho[
+            df_sc_trabalho["COD_PECA"].str.contains(busca_cod, na=False) | 
+            df_sc_trabalho["Descricao"].str.contains(busca_cod, na=False)
+        ]
 
 tot_op = int(df_trabalho["Qtd_OP"].sum()) if not df_trabalho.empty else 0
 tot_fab = int(df_trabalho["Qtd_Fabr"].sum()) if not df_trabalho.empty else 0
