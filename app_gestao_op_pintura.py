@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS refinada
+# Estilização CSS refinada: Espaçamento superior corrigido e tabelas 100% full-width
 st.markdown("""
 <style>
     * {
@@ -24,17 +24,17 @@ st.markdown("""
         -ms-user-select: text !important;
     }
     .block-container {
-        padding-top: 0.8rem !important;
-        padding-bottom: 2rem !important;
-        padding-left: 0.8rem !important;
-        padding-right: 0.8rem !important;
+        padding-top: 3.5rem !important; /* Desce o cabeçalho para não ser cortado pela barra do Streamlit */
+        padding-bottom: 1rem !important;
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
         max-width: 100% !important;
     }
     [data-testid="stSidebar"] { display: none !important; }
     
     .sticky-top-panel {
         position: sticky;
-        top: 0;
+        top: 2.8rem;
         z-index: 999;
         background-color: #0e1117;
         padding: 8px 12px;
@@ -74,7 +74,14 @@ st.markdown("""
         margin-bottom: 8px;
     }
     
-    [data-testid="stDataFrame"] { width: 100% !important; }
+    /* Expande os dataframes para ocupar toda a tela disponível */
+    [data-testid="stDataFrame"] {
+        width: 100% !important;
+        min-height: 500px !important;
+    }
+    [data-testid="stDataFrame"] > div {
+        width: 100% !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -375,7 +382,6 @@ def processar_todas_as_bases(mtimes):
     df_cruz_obs = pd.merge(op_obs, rom_obs, on=["OBS_NORM", "COD_PECA"], how="outer")
 
     if not df_cruz_obs.empty:
-        # Recuperação robusta de descrição
         if "Descricao" not in df_cruz_obs.columns:
             df_cruz_obs["Descricao"] = "-"
         if "Descricao_Rom" in df_cruz_obs.columns:
@@ -702,7 +708,8 @@ with tab_metalicos:
                 "Status": "Status do Fluxo"
             }),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            height=650
         )
     else: st.info("Nenhum dado metálico encontrado para o filtro selecionado.")
 
@@ -728,7 +735,7 @@ with tab_mensal:
             with col_t_mes:
                 st.markdown("**Tabela do Período Selecionado**")
                 df_mes_view = df_mes_prod.rename(columns={"MES_ANO": "Mês/Ano", "Qtd_Planejada": "Planejado", "Qtd_Produzida": "Fabricado", "Total_OPs": "Qtd OPs"})
-                st.dataframe(df_mes_view, use_container_width=True, hide_index=True)
+                st.dataframe(df_mes_view, use_container_width=True, hide_index=True, height=500)
                 st.download_button("📥 Exportar Produção Mensal (.xlsx)", data=gerar_excel_tabela(df_mes_view, "Producao_Mensal"), file_name="Producao_Mensal.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else: st.warning("Base de OP não carregada.")
 
@@ -758,7 +765,8 @@ with tab_retornadas:
                     "Doc_Romaneio": "Romaneio de Envio", "Data_Envio": "Data do Envio", "Status": "Status"
                 }),
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                height=650
             )
         else: st.info("ℹ️ Nenhuma peça com retorno registrado para este filtro.")
 
@@ -788,7 +796,8 @@ with tab_pend_trat:
                     "Doc_Romaneio": "Romaneio / Remessa Envio", "Data_Envio": "Data do Envio"
                 }),
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                height=650
             )
         else: st.success("🎉 Nenhuma peça pendente de retorno de tratamento para este filtro!")
 
@@ -802,7 +811,12 @@ with tab_aguard_envio:
             st.download_button("📥 Exportar Aguardando Envio (.xlsx)", data=gerar_excel_tabela(df_p3, "Aguardando_Envio"), file_name="Fabricadas_Aguardando_Envio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p3.empty:
             cols_env = ["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Aguardando_Envio", "Data_Fabricacao"]
-            st.dataframe(df_p3[cols_env].rename(columns={"OBS_NORM": "Observação (Lote)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Já Enviado", "Aguardando_Envio": "Aguardando Despacho", "Data_Fabricacao": "Data Fabricação"}), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_p3[cols_env].rename(columns={"OBS_NORM": "Observação (Lote)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Já Enviado", "Aguardando_Envio": "Aguardando Despacho", "Data_Fabricacao": "Data Fabricação"}),
+                use_container_width=True,
+                hide_index=True,
+                height=650
+            )
         else: st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
 
 # 7. FALTA FABRICAR
@@ -815,7 +829,12 @@ with tab_falta_fab:
             st.download_button("📥 Exportar Falta Fabricar (.xlsx)", data=gerar_excel_tabela(df_p4, "Falta_Fabricar"), file_name="Falta_Fabricar_Internamente.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p4.empty:
             cols_fab = ["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar"]
-            st.dataframe(df_p4[cols_fab].rename(columns={"OBS_NORM": "Observação (Lote)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Saldo a Produzir"}), use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_p4[cols_fab].rename(columns={"OBS_NORM": "Observação (Lote)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Saldo a Produzir"}),
+                use_container_width=True,
+                hide_index=True,
+                height=650
+            )
         else: st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
 
 # 8. COMPRAS
@@ -836,7 +855,12 @@ with tab_compras:
         if sel_forn: df_comp_view = df_comp_view[df_comp_view["Fornecedor"].isin(sel_forn)]
         if sel_st_comp: df_comp_view = df_comp_view[df_comp_view["Status_Compra"].isin(sel_st_comp)]
         colunas_comp = ["OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
-        st.dataframe(df_comp_view[colunas_comp].rename(columns={"OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Fornecedor": "Fornecedor", "Qtd_Comprada": "QT Comprada", "Qtd_Entregue": "QTD Entregue", "Saldo_Falta_Entregar": "FAL", "NF_Entrega": "NF Ent.", "Data_Entrega": "DT Ent.", "Data_Fornecedor": "Data Fornecedor", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
+        st.dataframe(
+            df_comp_view[colunas_comp].rename(columns={"OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Fornecedor": "Fornecedor", "Qtd_Comprada": "QT Comprada", "Qtd_Entregue": "QTD Entregue", "Saldo_Falta_Entregar": "FAL", "NF_Entrega": "NF Ent.", "Data_Entrega": "DT Ent.", "Data_Fornecedor": "Data Fornecedor", "Status_Compra": "Status"}),
+            use_container_width=True,
+            hide_index=True,
+            height=650
+        )
     else: st.info("Nenhuma planilha de Compras carregada ou nenhum item encontrado para o filtro selecionado.")
 
 # 9. SC EM ABERTO
@@ -869,7 +893,8 @@ with tab_sc:
                 "Classe_Valor": "Classe Valor"
             }),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            height=650
         )
     else:
         st.info("Nenhuma Solicitação de Compras em aberto carregada ou nenhum item encontrado para o filtro selecionado.")
@@ -879,16 +904,16 @@ with tab_base_op:
     st.subheader("📑 Base Completa: OP Fabricação")
     if not df_op_raw.empty:
         st.download_button("📥 Exportar Base OP (.xlsx)", data=gerar_excel_tabela(df_op_raw, "Base_OP"), file_name="Base_OP_Fabricacao.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        if busca_cod: st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
-        else: st.dataframe(df_op_raw, use_container_width=True, hide_index=True)
+        if busca_cod: st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
+        else: st.dataframe(df_op_raw, use_container_width=True, hide_index=True, height=650)
 
 # 11. BASE ROMANEIO COMPLETA
 with tab_base_rom:
     st.subheader("🎨 Base Completa: Romaneio de Pintura")
     if not df_rom_raw.empty:
         st.download_button("📥 Exportar Base Romaneio (.xlsx)", data=gerar_excel_tabela(df_rom_raw, "Base_Romaneio"), file_name="Base_Romaneio_Pintura.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        if busca_cod: st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
-        else: st.dataframe(df_rom_raw, use_container_width=True, hide_index=True)
+        if busca_cod: st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
+        else: st.dataframe(df_rom_raw, use_container_width=True, hide_index=True, height=650)
 
 # 12. BASE COMPRAS COMPLETA
 with tab_base_comp:
@@ -898,5 +923,5 @@ with tab_base_comp:
         if busca_cod:
             col_busca_prod = [c for c in df_comp_raw.columns if "PROD" in str(c).upper() or "COD" in str(c).upper()]
             col_target = col_busca_prod[0] if col_busca_prod else df_comp_raw.columns[2]
-            st.dataframe(df_comp_raw[df_comp_raw[col_target].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True)
-        else: st.dataframe(df_comp_raw, use_container_width=True, hide_index=True)
+            st.dataframe(df_comp_raw[df_comp_raw[col_target].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
+        else: st.dataframe(df_comp_raw, use_container_width=True, hide_index=True, height=650)
