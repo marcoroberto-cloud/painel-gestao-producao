@@ -5,6 +5,7 @@ import os
 import re
 import io
 import json
+import shutil
 from datetime import datetime, timezone, timedelta
 
 st.set_page_config(
@@ -14,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS refinada: Espaçamento superior corrigido e tabelas 100% full-width
+# Estilização CSS refinada
 st.markdown("""
 <style>
     * {
@@ -24,7 +25,7 @@ st.markdown("""
         -ms-user-select: text !important;
     }
     .block-container {
-        padding-top: 3.5rem !important; /* Desce o cabeçalho para não ser cortado pela barra do Streamlit */
+        padding-top: 3.5rem !important;
         padding-bottom: 1rem !important;
         padding-left: 0.5rem !important;
         padding-right: 0.5rem !important;
@@ -74,7 +75,6 @@ st.markdown("""
         margin-bottom: 8px;
     }
     
-    /* Expande os dataframes para ocupar toda a tela disponível */
     [data-testid="stDataFrame"] {
         width: 100% !important;
         min-height: 500px !important;
@@ -86,7 +86,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 STORAGE_DIR = "dados_compartilhados"
+BACKUPS_DIR = os.path.join(STORAGE_DIR, "historico_backups")
 os.makedirs(STORAGE_DIR, exist_ok=True)
+os.makedirs(BACKUPS_DIR, exist_ok=True)
 META_FILE = os.path.join(STORAGE_DIR, "metadata.json")
 
 caminho_op_pqt = os.path.join(STORAGE_DIR, "base_op.parquet")
@@ -108,6 +110,59 @@ def carregar_meta():
 def salvar_meta(meta):
     with open(META_FILE, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
+
+def criar_backup_historico(data_str):
+    """Salva uma cópia completa das 4 bases em uma pasta de backup com limite de 5 versões."""
+    stamp = datetime.now(FUSO_BRASILIA).strftime("%Y%m%d_%H%M%S")
+    pasta_destino = os.path.join(BACKUPS_DIR, stamp)
+    os.makedirs(pasta_destino, exist_ok=True)
+    
+    for fname in ["base_op.parquet", "base_romaneio.parquet", "base_compras.parquet", "base_sc.parquet"]:
+        p_orig = os.path.join(STORAGE_DIR, fname)
+        if os.path.exists(p_orig):
+            shutil.copy2(p_orig, os.path.join(pasta_destino, fname))
+            
+    # Salva o arquivo de identificação daquele backup
+    with open(os.path.join(pasta_destino, "info.json"), "w", encoding="utf-8") as f:
+        json.dump({"timestamp": stamp, "data_formatada": data_str}, f)
+
+    # Mantém no máximo os 5 backups mais recentes
+    todas_pastas = sorted(os.listdir(BACKUPS_DIR), reverse=True)
+    if len(todas_pastas) > 5:
+        for p_remover in todas_pastas[5:]:
+            shutil.rmtree(os.path.join(BACKUPS_DIR, p_remover), ignore_errors=True)
+
+def listar_historicos_disponiveis():
+    backups = []
+    if os.path.exists(BACKUPS_DIR):
+        for pasta in sorted(os.listdir(BACKUPS_DIR), reverse=True):
+            p_info = os.path.join(BACKUPS_DIR, pasta, "info.json")
+            if os.path.exists(p_info):
+                try:
+                    with open(p_info, "r", encoding="utf-8") as f:
+                        info = json.load(f)
+                        backups.append((pasta, info.get("data_formatada", pasta)))
+                except:
+                    pass
+    return backups
+
+def restaurar_backup(pasta_id):
+    pasta_origem = os.path.join(BACKUPS_DIR, pasta_id)
+    if os.path.exists(pasta_origem):
+        for fname in ["base_op.parquet", "base_romaneio.parquet", "base_compras.parquet", "base_sc.parquet"]:
+            p_bkp = os.path.join(pasta_origem, fname)
+            p_dest = os.path.join(STORAGE_DIR, fname)
+            if os.path.exists(p_bkp):
+                shutil.copy2(p_bkp, p_dest)
+            elif os.path.exists(p_dest):
+                os.remove(p_dest)
+        p_info = os.path.join(pasta_origem, "info.json")
+        if os.path.exists(p_info):
+            with open(p_info, "r", encoding="utf-8") as f:
+                info = json.load(f)
+                meta = carregar_meta()
+                meta["ultima_atualizacao"] = f"Restaurado de: {info.get('data_formatada')}"
+                salvar_meta(meta)
 
 def normalizar_texto(t):
     if pd.isna(t) or t is None: return ""
@@ -191,20 +246,25 @@ def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
         df_clean.to_excel(writer, index=False, sheet_name=aba_segura)
     return output.getvalue()
 
-def obter_mtimes():
+def obter_mtimes(pasta_base=STORAGE_DIR):
     return (
-        os.path.getmtime(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else 0,
-        os.path.getmtime(caminho_rom_pqt) if os.path.exists(caminho_rom_pqt) else 0,
-        os.path.getmtime(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else 0,
-        os.path.getmtime(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_op.parquet")) if os.path.exists(os.path.join(pasta_base, "base_op.parquet")) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_romaneio.parquet")) if os.path.exists(os.path.join(pasta_base, "base_romaneio.parquet")) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_compras.parquet")) if os.path.exists(os.path.join(pasta_base, "base_compras.parquet")) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_sc.parquet")) if os.path.exists(os.path.join(pasta_base, "base_sc.parquet")) else 0,
     )
 
 @st.cache_data(show_spinner=False)
-def processar_todas_as_bases(mtimes):
-    df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
-    df_rom_raw = pd.read_parquet(caminho_rom_pqt) if os.path.exists(caminho_rom_pqt) else pd.DataFrame()
-    df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
-    df_sc_raw = pd.read_parquet(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else pd.DataFrame()
+def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
+    p_op = os.path.join(pasta_base, "base_op.parquet")
+    p_rom = os.path.join(pasta_base, "base_romaneio.parquet")
+    p_comp = os.path.join(pasta_base, "base_compras.parquet")
+    p_sc = os.path.join(pasta_base, "base_sc.parquet")
+
+    df_op_raw = pd.read_parquet(p_op) if os.path.exists(p_op) else pd.DataFrame()
+    df_rom_raw = pd.read_parquet(p_rom) if os.path.exists(p_rom) else pd.DataFrame()
+    df_comp_raw = pd.read_parquet(p_comp) if os.path.exists(p_comp) else pd.DataFrame()
+    df_sc_raw = pd.read_parquet(p_sc) if os.path.exists(p_sc) else pd.DataFrame()
 
     catalogo_descricoes = {}
 
@@ -418,7 +478,7 @@ def processar_todas_as_bases(mtimes):
 
     return df_cruz_obs, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw
 
-# --- CABEÇALHO ---
+# --- CABEÇALHO COM CONTROLE DE HISTÓRICO ---
 col_head_tit, col_head_up = st.columns([1, 3])
 meta_atual = carregar_meta()
 data_atualizacao = meta_atual.get("ultima_atualizacao", "Nenhum arquivo salvo ainda")
@@ -428,23 +488,40 @@ with col_head_tit:
     st.caption(f"🕒 **Última carga:** {data_atualizacao}")
 
 with col_head_up:
-    col_up, col_btn_clean = st.columns([3, 1])
+    col_up, col_btn_acoes = st.columns([2.5, 1.5])
     with col_up:
         arquivos_enviados = st.file_uploader(
             "📁 Carregar planilhas (OP, Romaneio, Compras e SC):", 
             type=["xlsx", "xls", "csv"], 
             accept_multiple_files=True
         )
-    with col_btn_clean:
-        if st.button("🧹 Resetar Arquivos"):
-            for fname in ["base_op.parquet", "base_romaneio.parquet", "base_compras.parquet", "base_sc.parquet"]:
-                p = os.path.join(STORAGE_DIR, fname)
-                if os.path.exists(p): os.remove(p)
-            meta_atual["ultima_atualizacao"] = "Nenhum arquivo salvo ainda"
-            salvar_meta(meta_atual)
-            st.cache_data.clear()
-            st.success("Arquivos resetados com sucesso!")
-            st.rerun()
+    with col_btn_acoes:
+        # Seletor de Histórico / Backups Salvos
+        historicos = listar_historicos_disponiveis()
+        opcoes_historico = ["📁 Versão Atual"] + [f"🕒 Backup: {h[1]}" for h in historicos]
+        
+        escolha_versao = st.selectbox("⏳ Histórico de Versões:", opcoes_historico, index=0)
+        
+        c_btn_rest, c_btn_clean = st.columns(2)
+        with c_btn_rest:
+            if escolha_versao != "📁 Versão Atual":
+                if st.button("🔄 Restaurar"):
+                    idx = opcoes_historico.index(escolha_versao) - 1
+                    pasta_sel = historicos[idx][0]
+                    restaurar_backup(pasta_sel)
+                    st.cache_data.clear()
+                    st.success("Versão restaurada com sucesso!")
+                    st.rerun()
+        with c_btn_clean:
+            if st.button("🧹 Resetar"):
+                for fname in ["base_op.parquet", "base_romaneio.parquet", "base_compras.parquet", "base_sc.parquet"]:
+                    p = os.path.join(STORAGE_DIR, fname)
+                    if os.path.exists(p): os.remove(p)
+                meta_atual["ultima_atualizacao"] = "Nenhum arquivo salvo ainda"
+                salvar_meta(meta_atual)
+                st.cache_data.clear()
+                st.success("Arquivos resetados com sucesso!")
+                st.rerun()
 
 if "ultimo_upload_ids" not in st.session_state:
     st.session_state.ultimo_upload_ids = ""
@@ -453,6 +530,10 @@ if arquivos_enviados:
     ids_atuais = "_".join([f"{f.name}_{f.size}" for f in arquivos_enviados])
     if ids_atuais != st.session_state.ultimo_upload_ids:
         agora_str = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M")
+        
+        # Cria backup da versão atual antes de sobrescrever
+        criar_backup_historico(data_atualizacao)
+        
         for f in arquivos_enviados:
             try:
                 file_bytes = f.getvalue()
@@ -504,8 +585,14 @@ if arquivos_enviados:
         st.session_state.ultimo_upload_ids = ids_atuais
         st.cache_data.clear()
 
-mtimes = obter_mtimes()
-df_cruz_obs, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw = processar_todas_as_bases(mtimes)
+# Carrega a pasta selecionada (Atual ou Backup)
+pasta_carregar = STORAGE_DIR
+if escolha_versao != "📁 Versão Atual":
+    idx = opcoes_historico.index(escolha_versao) - 1
+    pasta_carregar = os.path.join(BACKUPS_DIR, historicos[idx][0])
+
+mtimes = obter_mtimes(pasta_carregar)
+df_cruz_obs, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw = processar_todas_as_bases(mtimes, pasta_carregar)
 
 if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empty:
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
