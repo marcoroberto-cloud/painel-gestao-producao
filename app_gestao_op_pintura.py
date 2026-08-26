@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS refinada para contraste claro, limpeza visual e visualização mobile
+# Estilização CSS refinada
 st.markdown("""
 <style>
     * {
@@ -179,17 +179,6 @@ def normalizar_texto(t):
     if pd.isna(t) or t is None: return ""
     s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', '').replace('\n', ' ')
     return re.sub(r'\s+', ' ', s).strip().upper()
-
-def extrair_tat_base(t):
-    t_clean = normalizar_texto(t)
-    m = re.search(r'(\d{5}\.\d{2}[A-Z0-9]*)', t_clean)
-    if m:
-        raiz = re.sub(r'[A-Z].*$', '', m.group(1).strip())
-        return f"TAT {raiz}" if not raiz.startswith("TAT") else raiz
-    m2 = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
-    if m2:
-        return m2.group(1).strip()
-    return t_clean.split('-')[0].strip()
 
 def limpar_cod(c):
     if pd.isna(c) or c is None: return ""
@@ -483,7 +472,6 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
 
-        # Regra da fábrica: O fabricado mínimo do lote é o que já foi despachado/retornado
         df_cruz_obs["Qtd_Fabr"] = np.maximum(df_cruz_obs["Qtd_Fabr"], df_cruz_obs["Env_Pintura"])
         df_cruz_obs["Qtd_OP"] = np.maximum(df_cruz_obs["Qtd_OP"], df_cruz_obs["Qtd_Fabr"])
 
@@ -622,35 +610,27 @@ if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empt
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- FILTROS DE OBSERVAÇÃO ---
+# --- FILTRO ÚNICO UNIFICADO (PROJETO / OBSERVAÇÃO) ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
-obs_fabrica_set = set()
+# Coleta todas as observações existentes em todas as bases
+todas_obs_set = set()
 if not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns:
-    obs_fabrica_set.update(df_cruz_obs["OBS_NORM"].dropna().unique())
-lista_obs_fabrica = sorted([str(p) for p in obs_fabrica_set if str(p).strip() and str(p) not in ["-", "NAN", "NONE"]])
-
-obs_compras_set = set()
+    todas_obs_set.update(df_cruz_obs["OBS_NORM"].dropna().unique())
 if not df_comp.empty and "OBS_NORM" in df_comp.columns:
-    obs_compras_set.update(df_comp["OBS_NORM"].dropna().unique())
+    todas_obs_set.update(df_comp["OBS_NORM"].dropna().unique())
 if not df_sc.empty and "OBS_NORM" in df_sc.columns:
-    obs_compras_set.update(df_sc["OBS_NORM"].dropna().unique())
-lista_obs_compras = sorted([str(p) for p in obs_compras_set if str(p).strip() and str(p) not in ["-", "NAN", "NONE"]])
+    todas_obs_set.update(df_sc["OBS_NORM"].dropna().unique())
 
-col_f_fab, col_f_comp, col_f_busca = st.columns([1.6, 1.6, 1.0])
+lista_todas_obs = sorted([str(p) for p in todas_obs_set if str(p).strip() and str(p) not in ["-", "NAN", "NONE"]])
 
-with col_f_fab:
-    sel_obs_fabrica = st.multiselect(
-        "🏗️ 1. Lotes Fabricação / Romaneio:",
-        options=lista_obs_fabrica,
-        placeholder="Digite parte do lote (OP / Pintura)..."
-    )
+col_f_unica, col_f_busca = st.columns([3.0, 1.2])
 
-with col_f_comp:
-    sel_obs_compras = st.multiselect(
-        "📦 2. Lotes Compras / SC:",
-        options=lista_obs_compras,
-        placeholder="Opcional: vincular manualmente..."
+with col_f_unica:
+    sel_obs_global = st.multiselect(
+        "🔎 Selecionar Projeto / Observação (Fábrica, Romaneio, Compras e SC):",
+        options=lista_todas_obs,
+        placeholder="Digite parte do projeto (Ex: COROLLA, TRAILBLAZER, 11761, 10877)..."
     )
 
 with col_f_busca:
@@ -660,45 +640,23 @@ df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
 df_sc_trabalho = df_sc.copy() if not df_sc.empty else pd.DataFrame()
 
-# 1. Filtra base de Fábrica / Romaneio
-if sel_obs_fabrica:
+# Aplicação estrita do Filtro Único
+if sel_obs_global:
+    # 1. Filtra Fábrica/Romaneio
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns:
-        df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_fabrica)]
-
-# 2. Filtro Preciso de Compras e SC
-if sel_obs_compras:
+        df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_global)]
+    
+    # 2. Filtra Compras exatamente pelas observações selecionadas
     if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns:
-        df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_compras)]
+        df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_global)]
+        
+    # 3. Filtra SC exatamente pelas observações selecionadas
     if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns:
-        df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_compras)]
-    tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "")
-elif sel_obs_fabrica:
-    termos_estritos = []
-    for obs in sel_obs_fabrica:
-        m_lote = re.search(r'(LOTE\s*[\d\+\w]+)', obs)
-        if m_lote: 
-            termos_estritos.append(m_lote.group(1).strip())
-        else:
-            m_tat = re.search(r'(\d{5}\.\d{2}[A-Z0-9]*)', obs)
-            if m_tat: termos_estritos.append(m_tat.group(1).strip())
-
-    def match_estrito_compras(obs_val):
-        t = str(obs_val).upper()
-        if not termos_estritos: return True
-        return any(term in t for term in termos_estritos)
-
-    if not df_comp_trabalho.empty:
-        df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].apply(match_estrito_compras)]
+        df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_global)]
         
-    if not df_sc_trabalho.empty:
-        df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].apply(match_estrito_compras)]
-        
-    tit_comp = "Auto-vinculado ao Lote"
+    projeto_ativo_nome = ", ".join(sel_obs_global[:2]) + ("..." if len(sel_obs_global) > 2 else "")
 else:
-    tit_comp = "Todas as Compras"
-
-tit_fab = ", ".join(sel_obs_fabrica[:1]) + ("..." if len(sel_obs_fabrica) > 1 else "") if sel_obs_fabrica else "Todas as OPs"
-projeto_ativo_nome = f"{tit_fab}" if not sel_obs_compras else f"Fábrica: [{tit_fab}] | Compras: [{tit_comp}]"
+    projeto_ativo_nome = "Todas as Observações"
 
 if busca_cod:
     if not df_trabalho.empty:
@@ -753,19 +711,21 @@ tab_mensal, tab_mobile, tab_metalicos, tab_retornadas, tab_pend_trat, tab_aguard
 ])
 
 # ==============================================================================
-# 1. ABA PRODUÇÃO MENSAL & CAPACIDADE DA FÁBRICA (NOVO DESIGN AVANÇADO)
+# 1. ABA PRODUÇÃO MENSAL & CAPACIDADE DA FÁBRICA
 # ==============================================================================
 with tab_mensal:
     st.markdown("### 📈 Painel Executivo de Produção & Capacidade Fabril")
     
     if not df_op.empty:
-        # Filtros de Ano e Mês
-        col_f_ano, col_f_mes, col_f_status_prod = st.columns([1, 1, 1.5])
+        col_f_ano, col_f_mes, _ = st.columns([1, 1, 1.5])
         anos_disp = sorted([a for a in df_op["ANO"].dropna().unique() if len(str(a)) == 4])
         with col_f_ano: 
             sel_anos = st.multiselect("🗓️ Filtrar Ano(s):", anos_disp, default=anos_disp)
             
         df_op_filtrada_data = df_op.copy()
+        if sel_obs_global:
+            df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["OBS_NORM"].isin(sel_obs_global)]
+
         if sel_anos: 
             df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["ANO"].isin(sel_anos)]
             
@@ -775,7 +735,6 @@ with tab_mensal:
         if sel_meses: 
             df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["MES"].isin(sel_meses)]
 
-        # Agregação por Mês/Ano com cruzamento de Romaneio
         df_mes_prod = df_op_filtrada_data.groupby("MES_ANO", as_index=False).agg(
             Qtd_Planejada=("QTD_PLAN", "sum"), 
             Qtd_Produzida=("QTD_PROD", "sum"), 
@@ -785,22 +744,8 @@ with tab_mensal:
         
         df_mes_prod = df_mes_prod[df_mes_prod["MES_ANO"].str.contains(r'^\d{4}', regex=True, na=False)]
 
-        # Cruzamento com Romaneio para saber Enviado e Retornado por período
-        if not df_rom.empty and "MES_ANO" in df_rom.columns:
-            df_rom_mes = df_rom.groupby("MES_ANO", as_index=False).agg(
-                Qtd_Enviada_Pintura=("QTD_ENV", "sum"),
-                Qtd_Retornada_Pronta=("QTD_RET", "sum")
-            )
-            df_mes_prod = pd.merge(df_mes_prod, df_rom_mes, on="MES_ANO", how="left").fillna(0.0)
-        else:
-            df_mes_prod["Qtd_Enviada_Pintura"] = df_mes_prod["Qtd_Produzida"]
-            df_mes_prod["Qtd_Retornada_Pronta"] = df_mes_prod["Qtd_Produzida"]
-
-        # 1.1 Cards com Indicadores Chave de Desempenho (KPIs do Período)
         tot_plan_periodo = int(df_mes_prod["Qtd_Planejada"].sum())
         tot_prod_periodo = int(df_mes_prod["Qtd_Produzida"].sum())
-        tot_env_periodo = int(df_mes_prod["Qtd_Enviada_Pintura"].sum())
-        tot_ret_periodo = int(df_mes_prod["Qtd_Retornada_Pronta"].sum())
         eficiencia_fabril = (tot_prod_periodo / tot_plan_periodo * 100) if tot_plan_periodo > 0 else 0.0
 
         kp1, kp2, kp3, kp4 = st.columns(4)
@@ -825,7 +770,7 @@ with tab_mensal:
         kp3.markdown(f"""
         <div class="card-mobile-clean">
             <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">🚚 ENVIADO P/ TRATAMENTO</span><br>
-            <b style="font-size:1.2rem; color:#d29922;">{tot_env_periodo:,} pçs</b><br>
+            <b style="font-size:1.2rem; color:#d29922;">{tot_env:,} pçs</b><br>
             <span style="font-size:0.75rem; color:#8b949e;">Despachado para pintura externa</span>
         </div>
         """, unsafe_allow_html=True)
@@ -833,12 +778,11 @@ with tab_mensal:
         kp4.markdown(f"""
         <div class="card-mobile-clean">
             <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">✅ RETORNADO 100% PRONTO</span><br>
-            <b style="font-size:1.2rem; color:#3fb950;">{tot_ret_periodo:,} pçs</b><br>
+            <b style="font-size:1.2rem; color:#3fb950;">{tot_ret:,} pçs</b><br>
             <span style="font-size:0.75rem; color:#8b949e;">Disponível para montagem final</span>
         </div>
         """, unsafe_allow_html=True)
 
-        # 1.2 Projetos em Aberto (O que falta fabricar internamente na fábrica)
         st.markdown("#### ⚠️ Projetos com Saldo Pendente de Fabricação Interna:")
         df_projetos_gargalo = df_op_filtrada_data.groupby("OBS_NORM", as_index=False).agg(
             Planejado=("QTD_PLAN", "sum"),
@@ -856,16 +800,18 @@ with tab_mensal:
                     • **`{r_gar['OBS_NORM']}`**: Falta produzir **{int(r_gar['Falta_Produzir']):,} pçs** | Prog: {int(r_gar['Planejado']):,} | Fab: {int(r_gar['Fabricado']):,} ({pct_g:.1f}% concluído)
                     """)
         else:
-            st.success("🎉 Todos os projetos do período selecionado foram 100% fabricados internamente!")
+            st.success("🎉 Todos os projetos filtrados foram 100% fabricados internamente ou não possuem pendências!")
 
         st.markdown("---")
 
-        # 1.3 Gráfico Comparativo 4 em 1 e Tabela Detalhada
         col_g_mes, col_t_mes = st.columns([1.6, 1.4])
         with col_g_mes:
             st.markdown("##### 📊 Comparativo Mensal de Volume Fabril (Peças)")
-            chart_data = df_mes_prod.set_index("MES_ANO")[["Qtd_Produzida", "Qtd_Planejada", "Qtd_Retornada_Pronta"]]
-            st.bar_chart(chart_data, color=["#1E88E5", "#90CAF9", "#2EA043"])
+            if not df_mes_prod.empty:
+                chart_data = df_mes_prod.set_index("MES_ANO")[["Qtd_Produzida", "Qtd_Planejada"]]
+                st.bar_chart(chart_data, color=["#1E88E5", "#90CAF9"])
+            else:
+                st.info("Nenhum dado mensal para os filtros aplicados.")
             
         with col_t_mes:
             st.markdown("##### 📑 Tabela do Período Selecionado")
@@ -873,8 +819,6 @@ with tab_mensal:
                 "MES_ANO": "Mês/Ano", 
                 "Qtd_Planejada": "Planejado OP", 
                 "Qtd_Produzida": "Fabricado", 
-                "Qtd_Enviada_Pintura": "Enviado Pintura",
-                "Qtd_Retornada_Pronta": "Retornado Pronto",
                 "Total_OPs": "Itens/OPs",
                 "Projetos_Distintos": "Qtd Lotes"
             })
@@ -891,7 +835,7 @@ with tab_mobile:
     
     st.markdown(f"### 📱 Diagnóstico Rápido: `{projeto_ativo_nome}`")
     
-    if saldo_rua == 0 and falta_fab == 0 and falta_env == 0 and saldo_compra == 0 and tot_sc_aberto == 0 and tot_ret > 0:
+    if saldo_rua == 0 and falta_fab == 0 and falta_env == 0 and saldo_compra == 0 and tot_sc_aberto == 0 and (tot_ret > 0 or tot_entregue > 0):
         status_geral_badge = '<span class="badge-status badge-ok">✅ PROJETO 100% PRONTO & LIBERADO PARA MONTAGEM</span>'
     elif saldo_rua > 0:
         status_geral_badge = f'<span class="badge-status badge-warn">⏳ AGUARDANDO RETORNO DE PINTURA ({saldo_rua} pçs na rua)</span>'
@@ -986,7 +930,7 @@ with tab_mobile:
                 </div>
                 """, unsafe_allow_html=True)
     else:
-        st.info("Nenhuma peça metálica filtrada.")
+        st.info("Nenhuma peça metálica encontrada para o filtro selecionado.")
 
     st.markdown("---")
 
@@ -1029,7 +973,7 @@ with tab_mobile:
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit: st.markdown(f"**Balanço Metálico ({len(df_trabalho)} itens) — {tit_fab}**")
+        with c_tit: st.markdown(f"**Balanço Metálico ({len(df_trabalho)} itens) — {projeto_ativo_nome}**")
         with c_btn:
             st.download_button("📥 Exportar Balanço (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
@@ -1171,7 +1115,11 @@ with tab_aguard_envio:
                 hide_index=True,
                 height=650
             )
-        else: st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
+        else: 
+            if not sel_obs_global:
+                st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
+            else:
+                st.info("Nenhuma peça aguardando envio para o projeto selecionado.")
 
 # ==============================================================================
 # 7. ABA FALTA FABRICAR
@@ -1191,7 +1139,11 @@ with tab_falta_fab:
                 hide_index=True,
                 height=650
             )
-        else: st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
+        else: 
+            if not sel_obs_global:
+                st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
+            else:
+                st.info("Nenhuma peça pendente de fabricação interna para o projeto selecionado.")
 
 # ==============================================================================
 # 8. ABA COMPRAS EXTERNAS
@@ -1219,7 +1171,7 @@ with tab_compras:
             hide_index=True,
             height=650
         )
-    else: st.info("Nenhuma planilha de Compras carregada ou nenhum item encontrado para o filtro selecionado.")
+    else: st.info("Nenhum item de Compras encontrado para o filtro selecionado.")
 
 # ==============================================================================
 # 9. ABA SC EM ABERTO
@@ -1257,7 +1209,7 @@ with tab_sc:
             height=650
         )
     else:
-        st.info("Nenhuma Solicitação de Compras em aberto carregada ou nenhum item encontrado para o filtro selecionado.")
+        st.info("Nenhuma Solicitação de Compras em aberto encontrada para o filtro selecionado.")
 
 # ==============================================================================
 # 10. BASE OP COMPLETA
