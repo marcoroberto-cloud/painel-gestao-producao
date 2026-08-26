@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS refinada para visual escuro, tags limpas e responsividade
+# Estilização CSS refinada
 st.markdown("""
 <style>
     * {
@@ -107,6 +107,12 @@ def normalizar_texto(t):
     s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', '').replace('\n', ' ')
     return re.sub(r'\s+', ' ', s).strip().upper()
 
+def extrair_tat_base(t):
+    t_clean = normalizar_texto(t)
+    m = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
+    if m: return m.group(1).strip()
+    return t_clean.split('-')[0].strip()
+
 def limpar_cod(c):
     if pd.isna(c) or c is None: return ""
     return str(c).replace('\xa0', ' ').replace('\u00a0', ' ').strip().upper()
@@ -192,6 +198,7 @@ def obter_mtimes():
         os.path.getmtime(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else 0,
     )
 
+# --- PROCESSAMENTO COMPLETO E UNIFICADO ---
 @st.cache_data(show_spinner=False)
 def processar_todas_as_bases(mtimes):
     df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
@@ -212,6 +219,7 @@ def processar_todas_as_bases(mtimes):
 
         df_op = df_op_raw.copy()
         df_op["OBS_NORM"] = df_op[col_obs_op].apply(normalizar_texto) if col_obs_op else ""
+        df_op["TAT_BASE"] = df_op[col_obs_op].apply(extrair_tat_base) if col_obs_op else ""
         df_op["COD_PECA"] = df_op[col_prod_op].apply(limpar_cod) if col_prod_op else ""
         df_op["DESC_PECA"] = df_op[col_desc_op].fillna("-").astype(str) if col_desc_op else "-"
         df_op["QTD_PLAN"] = df_op[col_qtd_op].apply(converter_num) if col_qtd_op else 0.0
@@ -246,6 +254,7 @@ def processar_todas_as_bases(mtimes):
 
         df_rom = df_rom_raw.copy()
         df_rom["OBS_NORM"] = df_rom[col_obs_rom].apply(normalizar_texto) if col_obs_rom else ""
+        df_rom["TAT_BASE"] = df_rom[col_obs_rom].apply(extrair_tat_base) if col_obs_rom else ""
         df_rom["COD_PECA"] = df_rom[col_prod_rom].apply(limpar_cod) if col_prod_rom else ""
         df_rom["QTD_ENV"] = df_rom[col_qtd_rom].apply(converter_num) if col_qtd_rom else 0.0
         df_rom["QTD_RET"] = df_rom[col_ret_rom].apply(converter_num) if col_ret_rom else 0.0
@@ -256,10 +265,11 @@ def processar_todas_as_bases(mtimes):
         df_rom["DATA_RETORNO"] = df_rom[col_dt_ret_rom].apply(formatar_data_br) if col_dt_ret_rom else "-"
         df_rom["FORNECEDOR_TRAT"] = df_rom[col_forn_rom].apply(padronizar_fornecedor_romaneio) if col_forn_rom else "-"
 
-    # 3. Compras
+    # 3. Compras (Garante leitura correta de TAT e Observação)
     df_comp = pd.DataFrame()
     if not df_comp_raw.empty:
-        col_obs_comp = buscar_col_flex(df_comp_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS", "TAT"])
+        col_tat_comp = buscar_col_flex(df_comp_raw, ["TAT", "PROJETO", "PROJ"])
+        col_obs_comp = buscar_col_flex(df_comp_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
         col_prod_comp = buscar_col_flex(df_comp_raw, ["PRODUTO", "COD PROD", "CODIGO"])
         col_desc_comp = buscar_col_flex(df_comp_raw, ["DESCRIÇÃO", "DESCRICAO", "DESC. PROD"])
         col_forn_comp = buscar_col_flex(df_comp_raw, ["FORNECEDOR"])
@@ -271,7 +281,21 @@ def processar_todas_as_bases(mtimes):
         col_dt_forn = buscar_col_flex(df_comp_raw, ["DATA FORNECEDOR", "DT FORNECEDOR"])
 
         df_comp = df_comp_raw.copy()
-        df_comp["OBS_NORM"] = df_comp[col_obs_comp].apply(normalizar_texto) if col_obs_comp else ""
+        
+        # Pega a base de TAT / Obs
+        if col_tat_comp and col_obs_comp:
+            df_comp["TAT_BASE"] = df_comp[col_tat_comp].apply(extrair_tat_base)
+            df_comp["OBS_NORM"] = df_comp[col_obs_comp].apply(normalizar_texto)
+        elif col_tat_comp:
+            df_comp["TAT_BASE"] = df_comp[col_tat_comp].apply(extrair_tat_base)
+            df_comp["OBS_NORM"] = df_comp[col_tat_comp].apply(normalizar_texto)
+        elif col_obs_comp:
+            df_comp["TAT_BASE"] = df_comp[col_obs_comp].apply(extrair_tat_base)
+            df_comp["OBS_NORM"] = df_comp[col_obs_comp].apply(normalizar_texto)
+        else:
+            df_comp["TAT_BASE"] = "-"
+            df_comp["OBS_NORM"] = "-"
+
         df_comp["COD_PECA"] = df_comp[col_prod_comp].apply(limpar_cod) if col_prod_comp else ""
         df_comp["Descricao"] = df_comp[col_desc_comp].fillna("-").astype(str) if col_desc_comp else "-"
         df_comp["Fornecedor"] = df_comp[col_forn_comp].fillna("-").astype(str) if col_forn_comp else "-"
@@ -310,6 +334,7 @@ def processar_todas_as_bases(mtimes):
 
         df_sc = df_sc_raw.copy()
         df_sc["OBS_NORM"] = df_sc[col_obs_sc].apply(normalizar_texto) if col_obs_sc else ""
+        df_sc["TAT_BASE"] = df_sc[col_obs_sc].apply(extrair_tat_base) if col_obs_sc else ""
         df_sc["COD_PECA"] = df_sc[col_prod_sc].apply(limpar_cod) if col_prod_sc else ""
         df_sc["Filial"] = df_sc[col_filial_sc].fillna("-").astype(str) if col_filial_sc else "-"
         df_sc["Num_SC"] = df_sc[col_num_sc].fillna("-").astype(str) if col_num_sc else "-"
@@ -323,19 +348,21 @@ def processar_todas_as_bases(mtimes):
         df_sc["Classe_Valor"] = df_sc[col_classe_sc].fillna("-").astype(str) if col_classe_sc else "-"
         df_sc["Pedido"] = df_sc[col_ped_sc].fillna("-").astype(str) if col_ped_sc else "-"
 
-    # 5. Cruzamento de Lote por Observação
+    # 5. Cruzamento de Lote
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
 
     op_obs = df_op.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
+        TAT_BASE=("TAT_BASE", "first"),
         Descricao=("DESC_PECA", "first"),
         Qtd_OP=("QTD_PLAN", "sum"),
         Qtd_Fabr=("QTD_PROD", "sum"),
         Data_Fabricacao=("DT_FABR", format_unique_join)
-    ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
+    ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "TAT_BASE", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
 
     rom_obs = df_rom.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
+        TAT_BASE=("TAT_BASE", "first"),
         Env_Pintura=("QTD_ENV", "sum"),
         Ret_Pintura=("QTD_RET", "sum"),
         Saldo_Rua=("SALDO_RUA", "sum"),
@@ -344,9 +371,14 @@ def processar_todas_as_bases(mtimes):
         NF_Retorno=("NF_RETORNO", format_unique_join),
         Data_Retorno=("DATA_RETORNO", format_unique_join),
         Fornecedor_Tratamento=("FORNECEDOR_TRAT", format_unique_join)
-    ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
+    ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "TAT_BASE", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
 
     df_cruz_obs = pd.merge(op_obs, rom_obs, on=["OBS_NORM", "COD_PECA"], how="outer")
+    if "TAT_BASE_x" in df_cruz_obs.columns:
+        df_cruz_obs["TAT_BASE"] = df_cruz_obs["TAT_BASE_x"].fillna(df_cruz_obs["TAT_BASE_y"])
+        df_cruz_obs.drop(columns=["TAT_BASE_x", "TAT_BASE_y"], inplace=True)
+    elif "TAT_BASE" not in df_cruz_obs.columns:
+        df_cruz_obs["TAT_BASE"] = df_cruz_obs["OBS_NORM"].apply(extrair_tat_base)
 
     if not df_cruz_obs.empty:
         for col_str in ["Descricao", "Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
@@ -463,7 +495,7 @@ if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empt
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- FILTRO DIRETO NA PRÓPRIA CAIXA DE OBSERVAÇÃO ---
+# --- FILTRO DIRETO NA CAIXA COM INTELIGÊNCIA DE TAT CRUZADO ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
 todas_obs = set()
@@ -478,7 +510,7 @@ with col_multisel_obs:
     sel_obs_multi = st.multiselect(
         "📝 Digite e Selecione o(s) Lote(s) / Observação:",
         options=lista_obs,
-        placeholder="Digite parte do nome ou código (Ex: 11761, IVECO, USISOL)..."
+        placeholder="Digite parte do nome ou código (Ex: 11077, 11761, IVECO, USISOL)..."
     )
 
 with col_busca_peca:
@@ -489,9 +521,25 @@ df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
 df_sc_trabalho = df_sc.copy() if not df_sc.empty else pd.DataFrame()
 
 if sel_obs_multi:
-    if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns: df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-    if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-    if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi)]
+    # 1. Filtra a base de produção/romaneio
+    if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns:
+        df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
+    
+    # 2. Extrai os TATs Base das observações selecionadas para cruzamento perfeito em Compras e SC
+    tats_selecionados = set([extrair_tat_base(obs) for obs in sel_obs_multi if extrair_tat_base(obs)])
+    
+    # 3. Filtra Compras por Observação OU por TAT Base correspondente
+    if not df_comp_trabalho.empty:
+        cond_obs_comp = df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi) if "OBS_NORM" in df_comp_trabalho.columns else False
+        cond_tat_comp = df_comp_trabalho["TAT_BASE"].isin(tats_selecionados) if "TAT_BASE" in df_comp_trabalho.columns else False
+        df_comp_trabalho = df_comp_trabalho[cond_obs_comp | cond_tat_comp]
+        
+    # 4. Filtra SC por Observação OU por TAT Base correspondente
+    if not df_sc_trabalho.empty:
+        cond_obs_sc = df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi) if "OBS_NORM" in df_sc_trabalho.columns else False
+        cond_tat_sc = df_sc_trabalho["TAT_BASE"].isin(tats_selecionados) if "TAT_BASE" in df_sc_trabalho.columns else False
+        df_sc_trabalho = df_sc_trabalho[cond_obs_sc | cond_tat_sc]
+        
     projeto_ativo_nome = ", ".join(sel_obs_multi[:2]) + ("..." if len(sel_obs_multi) > 2 else "")
 else:
     projeto_ativo_nome = "Todas as Observações"
@@ -774,8 +822,8 @@ with tab_compras:
         df_comp_view = df_comp_trabalho.copy()
         if sel_forn: df_comp_view = df_comp_view[df_comp_view["Fornecedor"].isin(sel_forn)]
         if sel_st_comp: df_comp_view = df_comp_view[df_comp_view["Status_Compra"].isin(sel_st_comp)]
-        colunas_comp = ["OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
-        st.dataframe(df_comp_view[colunas_comp].rename(columns={"OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)", "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)", "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)", "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
+        colunas_comp = ["TAT_BASE", "OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
+        st.dataframe(df_comp_view[colunas_comp].rename(columns={"TAT_BASE": "Projeto/TAT", "OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)", "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)", "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)", "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
     else: st.info("Nenhuma planilha de Compras carregada ou nenhum item encontrado para o filtro selecionado.")
 
 # 9. SC EM ABERTO
