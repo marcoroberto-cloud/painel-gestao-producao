@@ -14,7 +14,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS otimizada
 st.markdown("""
 <style>
     * {
@@ -56,8 +55,6 @@ st.markdown("""
     div[data-baseweb="select"] * { font-size: 0.75rem !important; white-space: normal !important; word-break: break-word !important; }
     div[data-baseweb="tag"] { max-width: 100% !important; height: auto !important; white-space: normal !important; word-break: break-word !important; padding: 2px 6px !important; margin: 1px 0 !important; line-height: 1.2 !important; }
     div[data-baseweb="tag"] span { font-size: 0.73rem !important; white-space: normal !important; word-break: break-word !important; }
-    
-    ul[data-baseweb="menu"] li, div[data-baseweb="popover"] * { font-size: 0.75rem !important; line-height: 1.25 !important; white-space: normal !important; word-break: break-word !important; padding-top: 4px !important; padding-bottom: 4px !important; }
     
     .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
     .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.78rem; padding: 0 8px; white-space: nowrap; }
@@ -103,12 +100,6 @@ def normalizar_texto(t):
     s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', '').replace('\n', ' ')
     return re.sub(r'\s+', ' ', s).strip().upper()
 
-def extrair_tat_base(t):
-    t_clean = normalizar_texto(t)
-    m = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
-    if m: return m.group(1).strip()
-    return t_clean.split('-')[0].strip()
-
 def limpar_cod(c):
     if pd.isna(c) or c is None: return ""
     return str(c).replace('\xa0', ' ').replace('\u00a0', ' ').strip().upper()
@@ -126,36 +117,24 @@ def formatar_data_br(val):
         return "-"
     s = str(val).strip()
     m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', s)
-    if m:
-        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    if m: return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
     m_br = re.match(r'^(\d{2})/(\d{2})/(\d{4})', s)
-    if m_br:
-        return s[:10]
+    if m_br: return s[:10]
     return s
 
 def padronizar_fornecedor_romaneio(val):
     if pd.isna(val) or not str(val).strip() or str(val).strip() == "-":
         return "-"
     t = normalizar_texto(val)
-    if re.match(r'^\d{2}\.[A-Z0-9]+\.', t):
-        return "-"
-        
-    if "0002805" in t or "MEGACOLORS PRIME" in t or "PRIME" in t:
-        return "MEGACOLORS PRIME"
-    elif "0002695" in t or "MEGACOLORS" in t or "MEGA COLORS" in t:
-        return "MEGACOLORS"
-    elif "000092" in t or "REVRI" in t:
-        return "REVRI"
-    elif "000022" in t or "ECE" in t:
-        return "ECE"
-    elif "0002739" in t or "FORT COLOR" in t or "FORTCOLOR" in t:
-        return "FORT COLOR"
-    elif "000408" in t or "ZINCOBRIL" in t or "ZINCO BRIL" in t:
-        return "ZINCOBRIL"
-    
+    if re.match(r'^\d{2}\.[A-Z0-9]+\.', t): return "-"
+    if "0002805" in t or "MEGACOLORS PRIME" in t or "PRIME" in t: return "MEGACOLORS PRIME"
+    elif "0002695" in t or "MEGACOLORS" in t or "MEGA COLORS" in t: return "MEGACOLORS"
+    elif "000092" in t or "REVRI" in t: return "REVRI"
+    elif "000022" in t or "ECE" in t: return "ECE"
+    elif "0002739" in t or "FORT COLOR" in t or "FORTCOLOR" in t: return "FORT COLOR"
+    elif "000408" in t or "ZINCOBRIL" in t or "ZINCO BRIL" in t: return "ZINCOBRIL"
     m = re.search(r'-\s*F\s*-\s*(.+)', t)
-    if m:
-        return m.group(1).strip()
+    if m: return m.group(1).strip()
     return t
 
 def buscar_col_flex(df, lista_padroes, excluir_padroes=None):
@@ -165,14 +144,12 @@ def buscar_col_flex(df, lista_padroes, excluir_padroes=None):
         c_clean = normalizar_texto(c)
         if any(e in c_clean for e in excluir): continue
         for p in lista_padroes:
-            if normalizar_texto(p) == c_clean:
-                return c
+            if normalizar_texto(p) == c_clean: return c
     for c in df.columns:
         c_clean = normalizar_texto(c)
         if any(e in c_clean for e in excluir): continue
         for p in lista_padroes:
-            if normalizar_texto(p) in c_clean:
-                return c
+            if normalizar_texto(p) in c_clean: return c
     return None
 
 def ler_excel_completo(fonte, sheet_name=0):
@@ -187,19 +164,15 @@ def ler_excel_completo(fonte, sheet_name=0):
 @st.cache_data(show_spinner=False)
 def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
     output = io.BytesIO()
-    if df_exportar.empty:
-        return output.getvalue()
+    if df_exportar.empty: return output.getvalue()
     df_clean = df_exportar.copy()
-    
     def sanitizar_val(val):
         if pd.isna(val) or val is None: return ""
         s = str(val)
         return "".join(ch for ch in s if ord(ch) >= 32 or ch in "\n\r\t")
-    
     df_clean.columns = [sanitizar_val(c) for c in df_clean.columns]
     df_clean = df_clean.astype(str).map(sanitizar_val)
     aba_segura = re.sub(r'[\\/*?:\[\]]', '', str(nome_aba))[:30]
-    
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df_clean.to_excel(writer, index=False, sheet_name=aba_segura)
     return output.getvalue()
@@ -212,7 +185,7 @@ def obter_mtimes():
         os.path.getmtime(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else 0,
     )
 
-# --- NÚCLEO CACHEADO DE ALTA PERFORMANCE ---
+# --- PROCESSAMENTO OTIMIZADO FIXO POR OBSERVAÇÃO ---
 @st.cache_data(show_spinner=False)
 def processar_todas_as_bases(mtimes):
     df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
@@ -220,7 +193,7 @@ def processar_todas_as_bases(mtimes):
     df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
     df_sc_raw = pd.read_parquet(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else pd.DataFrame()
 
-    # 1. Processamento OP
+    # 1. OP
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
         col_obs_op = buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
@@ -233,7 +206,6 @@ def processar_todas_as_bases(mtimes):
 
         df_op = df_op_raw.copy()
         df_op["OBS_NORM"] = df_op[col_obs_op].apply(normalizar_texto) if col_obs_op else ""
-        df_op["TAT_BASE"] = df_op[col_obs_op].apply(extrair_tat_base) if col_obs_op else ""
         df_op["COD_PECA"] = df_op[col_prod_op].apply(limpar_cod) if col_prod_op else ""
         df_op["DESC_PECA"] = df_op[col_desc_op].fillna("-").astype(str) if col_desc_op else "-"
         df_op["QTD_PLAN"] = df_op[col_qtd_op].apply(converter_num) if col_qtd_op else 0.0
@@ -243,7 +215,7 @@ def processar_todas_as_bases(mtimes):
         df_op["MES"] = df_op["MES_ANO"].str.extract(r'/(\d{2})')[0]
         df_op["DT_FABR"] = df_op[col_dt_fim].apply(formatar_data_br) if col_dt_fim else "-"
 
-    # 2. Processamento Romaneio
+    # 2. Romaneio
     df_rom = pd.DataFrame()
     if not df_rom_raw.empty:
         col_obs_rom = buscar_col_flex(df_rom_raw, ["OBSERVAÇÕES", "OBSERVACOES", "OBSERVAÇÃO", "OBSERVACAO", "OBS"])
@@ -268,7 +240,6 @@ def processar_todas_as_bases(mtimes):
 
         df_rom = df_rom_raw.copy()
         df_rom["OBS_NORM"] = df_rom[col_obs_rom].apply(normalizar_texto) if col_obs_rom else ""
-        df_rom["TAT_BASE"] = df_rom[col_obs_rom].apply(extrair_tat_base) if col_obs_rom else ""
         df_rom["COD_PECA"] = df_rom[col_prod_rom].apply(limpar_cod) if col_prod_rom else ""
         df_rom["QTD_ENV"] = df_rom[col_qtd_rom].apply(converter_num) if col_qtd_rom else 0.0
         df_rom["QTD_RET"] = df_rom[col_ret_rom].apply(converter_num) if col_ret_rom else 0.0
@@ -279,11 +250,10 @@ def processar_todas_as_bases(mtimes):
         df_rom["DATA_RETORNO"] = df_rom[col_dt_ret_rom].apply(formatar_data_br) if col_dt_ret_rom else "-"
         df_rom["FORNECEDOR_TRAT"] = df_rom[col_forn_rom].apply(padronizar_fornecedor_romaneio) if col_forn_rom else "-"
 
-    # 3. Processamento Compras
+    # 3. Compras
     df_comp = pd.DataFrame()
     if not df_comp_raw.empty:
-        col_tat_comp = buscar_col_flex(df_comp_raw, ["TAT"])
-        col_obs_comp = buscar_col_flex(df_comp_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
+        col_obs_comp = buscar_col_flex(df_comp_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS", "TAT"])
         col_prod_comp = buscar_col_flex(df_comp_raw, ["PRODUTO", "COD PROD", "CODIGO"])
         col_desc_comp = buscar_col_flex(df_comp_raw, ["DESCRIÇÃO", "DESCRICAO", "DESC. PROD"])
         col_forn_comp = buscar_col_flex(df_comp_raw, ["FORNECEDOR"])
@@ -295,10 +265,6 @@ def processar_todas_as_bases(mtimes):
         col_dt_forn = buscar_col_flex(df_comp_raw, ["DATA FORNECEDOR", "DT FORNECEDOR"])
 
         df_comp = df_comp_raw.copy()
-        if col_tat_comp: df_comp["TAT_BASE"] = df_comp[col_tat_comp].apply(extrair_tat_base)
-        elif col_obs_comp: df_comp["TAT_BASE"] = df_comp[col_obs_comp].apply(extrair_tat_base)
-        else: df_comp["TAT_BASE"] = "-"
-
         df_comp["OBS_NORM"] = df_comp[col_obs_comp].apply(normalizar_texto) if col_obs_comp else ""
         df_comp["COD_PECA"] = df_comp[col_prod_comp].apply(limpar_cod) if col_prod_comp else ""
         df_comp["Descricao"] = df_comp[col_desc_comp].fillna("-").astype(str) if col_desc_comp else "-"
@@ -319,7 +285,7 @@ def processar_todas_as_bases(mtimes):
             else: return "⏳ Aguardando Fornecedor"
         df_comp["Status_Compra"] = df_comp.apply(calc_status_compra, axis=1)
 
-    # 4. Processamento SC
+    # 4. SC
     df_sc = pd.DataFrame()
     if not df_sc_raw.empty:
         col_filial_sc = buscar_col_flex(df_sc_raw, ["FILIAL"])
@@ -338,7 +304,6 @@ def processar_todas_as_bases(mtimes):
 
         df_sc = df_sc_raw.copy()
         df_sc["OBS_NORM"] = df_sc[col_obs_sc].apply(normalizar_texto) if col_obs_sc else ""
-        df_sc["TAT_BASE"] = df_sc[col_obs_sc].apply(extrair_tat_base) if col_obs_sc else ""
         df_sc["COD_PECA"] = df_sc[col_prod_sc].apply(limpar_cod) if col_prod_sc else ""
         df_sc["Filial"] = df_sc[col_filial_sc].fillna("-").astype(str) if col_filial_sc else "-"
         df_sc["Num_SC"] = df_sc[col_num_sc].fillna("-").astype(str) if col_num_sc else "-"
@@ -352,18 +317,17 @@ def processar_todas_as_bases(mtimes):
         df_sc["Classe_Valor"] = df_sc[col_classe_sc].fillna("-").astype(str) if col_classe_sc else "-"
         df_sc["Pedido"] = df_sc[col_ped_sc].fillna("-").astype(str) if col_ped_sc else "-"
 
-    # 5. Cruzamento de Dados
+    # 5. Cruzamento de Lote por Observação
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
 
     op_obs = df_op.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
-        TAT_BASE=("TAT_BASE", "first"),
         Descricao=("DESC_PECA", "first"),
         Qtd_OP=("QTD_PLAN", "sum"),
         Qtd_Fabr=("QTD_PROD", "sum"),
         Data_Fabricacao=("DT_FABR", format_unique_join)
-    ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "TAT_BASE", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
+    ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
 
     rom_obs = df_rom.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
         Env_Pintura=("QTD_ENV", "sum"),
@@ -377,41 +341,18 @@ def processar_todas_as_bases(mtimes):
     ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
 
     df_cruz_obs = pd.merge(op_obs, rom_obs, on=["OBS_NORM", "COD_PECA"], how="outer")
-    if "TAT_BASE" in df_cruz_obs.columns:
-        df_cruz_obs["TAT_BASE"] = df_cruz_obs["OBS_NORM"].apply(extrair_tat_base)
 
-    op_tat = df_op.groupby(["TAT_BASE", "COD_PECA"], as_index=False).agg(
-        Descricao=("DESC_PECA", "first"),
-        Qtd_OP=("QTD_PLAN", "sum"),
-        Qtd_Fabr=("QTD_PROD", "sum"),
-        Data_Fabricacao=("DT_FABR", format_unique_join)
-    ) if not df_op.empty else pd.DataFrame(columns=["TAT_BASE", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
-
-    rom_tat = df_rom.groupby(["TAT_BASE", "COD_PECA"], as_index=False).agg(
-        Env_Pintura=("QTD_ENV", "sum"),
-        Ret_Pintura=("QTD_RET", "sum"),
-        Saldo_Rua=("SALDO_RUA", "sum"),
-        Doc_Romaneio=("DOC_ROMANEIO", format_unique_join),
-        Data_Envio=("DATA_ENVIO", format_unique_join),
-        NF_Retorno=("NF_RETORNO", format_unique_join),
-        Data_Retorno=("DATA_RETORNO", format_unique_join),
-        Fornecedor_Tratamento=("FORNECEDOR_TRAT", format_unique_join)
-    ) if not df_rom.empty else pd.DataFrame(columns=["TAT_BASE", "COD_PECA", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
-
-    df_cruz_tat = pd.merge(op_tat, rom_tat, on=["TAT_BASE", "COD_PECA"], how="outer")
-
-    for df in [df_cruz_obs, df_cruz_tat]:
-        if df.empty: continue
+    if not df_cruz_obs.empty:
         for col_str in ["Descricao", "Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
-            df[col_str] = df[col_str].fillna("-").astype(str)
+            df_cruz_obs[col_str] = df_cruz_obs[col_str].fillna("-").astype(str)
         for col_num in ["Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "Saldo_Rua"]:
-            if col_num not in df.columns: df[col_num] = 0.0
-            df[col_num] = df[col_num].fillna(0.0).astype(float)
+            if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
+            df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
         
-        df.loc[df["Env_Pintura"] == 0, "Fornecedor_Tratamento"] = "-"
-        df["Saldo_Pendente_Pintura"] = (df["Env_Pintura"] - df["Ret_Pintura"]).clip(lower=0.0)
-        df["Aguardando_Envio"] = (df["Qtd_Fabr"] - df["Env_Pintura"]).clip(lower=0.0)
-        df["Falta_Fabricar"] = (df["Qtd_OP"] - df["Qtd_Fabr"]).clip(lower=0.0)
+        df_cruz_obs.loc[df_cruz_obs["Env_Pintura"] == 0, "Fornecedor_Tratamento"] = "-"
+        df_cruz_obs["Saldo_Pendente_Pintura"] = (df_cruz_obs["Env_Pintura"] - df_cruz_obs["Ret_Pintura"]).clip(lower=0.0)
+        df_cruz_obs["Aguardando_Envio"] = (df_cruz_obs["Qtd_Fabr"] - df_cruz_obs["Env_Pintura"]).clip(lower=0.0)
+        df_cruz_obs["Falta_Fabricar"] = (df_cruz_obs["Qtd_OP"] - df_cruz_obs["Qtd_Fabr"]).clip(lower=0.0)
 
         def calc_status(r):
             if r["Qtd_Fabr"] == 0 and r["Qtd_OP"] > 0: return "1. Falta Fabricar Internamente"
@@ -419,11 +360,11 @@ def processar_todas_as_bases(mtimes):
             elif r["Saldo_Pendente_Pintura"] > 0: return "3. Em Tratamento Externo"
             elif r["Ret_Pintura"] >= r["Qtd_Fabr"] and r["Qtd_Fabr"] > 0: return "4. 100% Concluído (Entregue)"
             else: return "5. Parcial / Diversos"
-        df["Status"] = df.apply(calc_status, axis=1)
+        df_cruz_obs["Status"] = df_cruz_obs.apply(calc_status, axis=1)
 
-    return df_cruz_obs, df_cruz_tat, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw
+    return df_cruz_obs, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw
 
-# --- INTERFACE & CONTROLES ---
+# --- INTERFACE ---
 col_head_tit, col_head_up = st.columns([1, 3])
 meta_atual = carregar_meta()
 data_atualizacao = meta_atual.get("ultima_atualizacao", "Nenhum arquivo salvo ainda")
@@ -509,55 +450,62 @@ if arquivos_enviados:
         st.session_state.ultimo_upload_ids = ids_atuais
         st.cache_data.clear()
 
-# Carregamento ultra-rápido cacheado
 mtimes = obter_mtimes()
-df_cruz_obs, df_cruz_tat, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw = processar_todas_as_bases(mtimes)
+df_cruz_obs, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw = processar_todas_as_bases(mtimes)
 
 if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empty:
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- ÁREA STICKY DE FILTROS E MÉTRICAS ---
+# --- FILTROS RÁPIDOS POR OBSERVAÇÃO ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
-col_modo, col_busca_peca = st.columns([1, 2])
-with col_modo:
-    modo_visao = st.radio("Modo de Agrupamento:", ["📌 Por Projeto / TAT Geral (Coluna K)", "📝 Por Observação de Lote (Coluna L)"], horizontal=True)
-with col_busca_peca:
-    busca_cod = st.text_input("🔍 Buscar Peça (código ou descrição em Produção, Compras ou SC):").strip().upper()
-
-todos_tats = set()
 todas_obs = set()
-
-if not df_cruz_tat.empty: todos_tats.update(df_cruz_tat["TAT_BASE"].dropna().unique())
-if not df_comp.empty: todos_tats.update(df_comp["TAT_BASE"].dropna().unique())
-if not df_sc.empty: todos_tats.update(df_sc["TAT_BASE"].dropna().unique())
-
 if not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns: todas_obs.update(df_cruz_obs["OBS_NORM"].dropna().unique())
 if not df_comp.empty and "OBS_NORM" in df_comp.columns: todas_obs.update(df_comp["OBS_NORM"].dropna().unique())
 if not df_sc.empty and "OBS_NORM" in df_sc.columns: todas_obs.update(df_sc["OBS_NORM"].dropna().unique())
-
-lista_projetos = sorted([str(p) for p in todos_tats if str(p).strip() and str(p) != "-"])
 lista_obs = sorted([str(p) for p in todas_obs if str(p).strip() and str(p) != "-"])
 
-df_trabalho = df_cruz_tat.copy() if modo_visao.startswith("📌") else (df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame())
+# Inicializa itens marcados na sessão
+if "obs_selecionadas" not in st.session_state:
+    st.session_state.obs_selecionadas = []
+
+col_pesq_obs, col_sel_obs, col_busca_peca = st.columns([1.2, 1.8, 1])
+
+with col_pesq_obs:
+    termo_filtro_obs = st.text_input("🔍 Filtrar opções de Observação:", placeholder="Ex: RUA, IVECO, USISOL...").strip().upper()
+
+# Filtra a lista de opções com base na pesquisa
+if termo_filtro_obs:
+    opcoes_mostradas = [obs for obs in lista_obs if termo_filtro_obs in obs]
+else:
+    opcoes_mostradas = lista_obs
+
+with col_sel_obs:
+    # Garante que as já selecionadas fiquem visíveis no multiselect
+    opcoes_completas_visiveis = sorted(list(set(opcoes_mostradas + st.session_state.obs_selecionadas)))
+    sel_obs_multi = st.multiselect(
+        "📝 Selecionar Observação(ões) de Lote:",
+        options=opcoes_completas_visiveis,
+        default=st.session_state.obs_selecionadas,
+        help="Digite na caixa ao lado para encurtar as opções da lista"
+    )
+    st.session_state.obs_selecionadas = sel_obs_multi
+
+with col_busca_peca:
+    busca_cod = st.text_input("🔍 Buscar Código/Descrição:").strip().upper()
+
+df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
 df_sc_trabalho = df_sc.copy() if not df_sc.empty else pd.DataFrame()
 
-if modo_visao.startswith("📌"):
-    sel_projs = st.multiselect("📌 Flegar Projeto(s) / TAT (Coluna K):", lista_projetos, default=[])
-    if sel_projs:
-        if not df_trabalho.empty: df_trabalho = df_trabalho[df_trabalho["TAT_BASE"].isin(sel_projs)]
-        if not df_comp_trabalho.empty: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["TAT_BASE"].isin(sel_projs)]
-        if not df_sc_trabalho.empty: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["TAT_BASE"].isin(sel_projs)]
-    projeto_ativo_nome = ", ".join(sel_projs) if sel_projs else "Todos os Projetos"
+if sel_obs_multi:
+    if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns: df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
+    if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi)]
+    if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi)]
+    projeto_ativo_nome = ", ".join(sel_obs_multi)
 else:
-    sel_obs_multi = st.multiselect("📝 Flegar Observação(ões) de Lote (Coluna L):", lista_obs, default=[])
-    if sel_obs_multi:
-        if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns: df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-        if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-        if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-    projeto_ativo_nome = ", ".join(sel_obs_multi) if sel_obs_multi else "Todas as Observações"
+    projeto_ativo_nome = "Todas as Observações"
 
 if busca_cod:
     if not df_trabalho.empty:
@@ -611,9 +559,9 @@ tab_mobile, tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard
     "📋 SC em Aberto", "📑 Base OP", "🎨 Base Romaneio", "🛒 Base Compras"
 ])
 
-# 1. RESUMO EXECUTIVO (MOBILE FIRST)
+# 1. RESUMO EXECUTIVO
 with tab_mobile:
-    st.markdown(f"#### 📱 Resumo Rápido do Projeto: `{projeto_ativo_nome}`")
+    st.markdown(f"#### 📱 Resumo: `{projeto_ativo_nome}`")
     pct_pronto = (tot_ret / tot_op * 100) if tot_op > 0 else 0
     st.markdown(f"**Prontidão Geral da Estrutura Metálica: `{pct_pronto:.1f}%`**")
     st.progress(min(max(pct_pronto / 100.0, 0.0), 1.0))
@@ -660,7 +608,6 @@ with tab_mobile:
         """, unsafe_allow_html=True)
         
     st.markdown("---")
-    
     st.markdown("##### 📍 Onde estão as peças na rua por Fornecedor:")
     if not df_trabalho.empty:
         df_na_rua = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0]
@@ -682,18 +629,19 @@ with tab_mobile:
         else:
             st.success("🎉 Nenhuma peça pendente de fabricação interna!")
 
-# 2. BALANÇO COMPLETO METÁLICOS (DESKTOP)
+# 2. BALANÇO COMPLETO METÁLICOS
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
-        with c_tit: st.markdown(f"**Balanço Metálico Completo ({len(df_trabalho)} itens) — {projeto_ativo_nome}**")
+        with c_tit: st.markdown(f"**Balanço Metálico ({len(df_trabalho)} itens) — {projeto_ativo_nome}**")
         with c_btn:
             st.download_button("📥 Exportar Balanço (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
-        colunas_balanco = ["Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Aguardando_Envio", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Status"]
+        colunas_balanco = ["OBS_NORM", "Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Aguardando_Envio", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Status"]
         
         st.dataframe(
             df_trabalho[colunas_balanco].rename(columns={
+                "OBS_NORM": "Observação (Lote)",
                 "Fornecedor_Tratamento": "Fornecedor (Onde está / Entregou)",
                 "COD_PECA": "Código da Peça", "Descricao": "Descrição",
                 "Qtd_OP": "Total Programado (OP)", "Qtd_Fabr": "Já Fabricado",
@@ -741,8 +689,7 @@ with tab_retornadas:
         forns_ret = sorted([f for f in df_p2["Fornecedor_Tratamento"].unique() if f != "-"])
         if forns_ret:
             sel_forn_ret = st.multiselect("Filtrar por Fornecedor (Quem entregou):", forns_ret, default=[])
-            if sel_forn_ret:
-                df_p2 = df_p2[df_p2["Fornecedor_Tratamento"].isin(sel_forn_ret)]
+            if sel_forn_ret: df_p2 = df_p2[df_p2["Fornecedor_Tratamento"].isin(sel_forn_ret)]
 
         c_tit, c_btn = st.columns([4, 1])
         with c_tit: st.subheader(f"✅ Peças que já Retornaram ({len(df_p2)} itens | {tot_ret:,} peças)")
@@ -750,9 +697,10 @@ with tab_retornadas:
             st.download_button("📥 Exportar Peças Retornadas (.xlsx)", data=gerar_excel_tabela(df_p2, "Pecas_Retornadas"), file_name="Pecas_Retornadas.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
         if not df_p2.empty:
-            cols_ret = ["Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "NF_Retorno", "Data_Retorno", "Doc_Romaneio", "Data_Envio", "Status"]
+            cols_ret = ["OBS_NORM", "Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "NF_Retorno", "Data_Retorno", "Doc_Romaneio", "Data_Envio", "Status"]
             st.dataframe(
                 df_p2[cols_ret].rename(columns={
+                    "OBS_NORM": "Observação (Lote)",
                     "Fornecedor_Tratamento": "Fornecedor (Entregou)",
                     "COD_PECA": "Código Peça", "Descricao": "Descrição",
                     "Qtd_Fabr": "Fabricado", "Env_Pintura": "Enviado", "Ret_Pintura": "Retornado Pronto",
@@ -764,15 +712,14 @@ with tab_retornadas:
             )
         else: st.info("ℹ️ Nenhuma peça com retorno registrado para este filtro.")
 
-# 5. FALTA RETORNO DE TRATAMENTO
+# 5. FALTA RETORNO
 with tab_pend_trat:
     if not df_trabalho.empty:
         df_p1 = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0].copy()
         forns_pend = sorted([f for f in df_p1["Fornecedor_Tratamento"].unique() if f != "-"])
         if forns_pend:
             sel_forn_pend = st.multiselect("Filtrar por Fornecedor (Onde a peça está):", forns_pend, default=[])
-            if sel_forn_pend:
-                df_p1 = df_p1[df_p1["Fornecedor_Tratamento"].isin(sel_forn_pend)]
+            if sel_forn_pend: df_p1 = df_p1[df_p1["Fornecedor_Tratamento"].isin(sel_forn_pend)]
 
         c_tit, c_btn = st.columns([4, 1])
         with c_tit: st.subheader(f"🚨 Falta Retorno de Tratamento Externo ({len(df_p1)} itens | {saldo_rua:,} peças)")
@@ -780,9 +727,10 @@ with tab_pend_trat:
             st.download_button("📥 Exportar Falta Retorno (.xlsx)", data=gerar_excel_tabela(df_p1, "Falta_Retorno_Tratamento"), file_name="Falta_Retorno_Tratamento.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
         if not df_p1.empty:
-            cols_pen = ["Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Doc_Romaneio", "Data_Envio"]
+            cols_pen = ["OBS_NORM", "Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Doc_Romaneio", "Data_Envio"]
             st.dataframe(
                 df_p1[cols_pen].rename(columns={
+                    "OBS_NORM": "Observação (Lote)",
                     "Fornecedor_Tratamento": "Fornecedor (Onde está)",
                     "COD_PECA": "Código Peça", "Descricao": "Descrição",
                     "Qtd_OP": "Programado", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Enviado",
@@ -803,11 +751,11 @@ with tab_aguard_envio:
         with c_btn:
             st.download_button("📥 Exportar Aguardando Envio (.xlsx)", data=gerar_excel_tabela(df_p3, "Aguardando_Envio"), file_name="Fabricadas_Aguardando_Envio.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p3.empty:
-            cols_env = ["COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Aguardando_Envio", "Data_Fabricacao"]
-            st.dataframe(df_p3[cols_env].rename(columns={"COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Já Enviado", "Aguardando_Envio": "Aguardando Despacho", "Data_Fabricacao": "Data Fabricação"}), use_container_width=True, hide_index=True)
+            cols_env = ["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Aguardando_Envio", "Data_Fabricacao"]
+            st.dataframe(df_p3[cols_env].rename(columns={"OBS_NORM": "Observação (Lote)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Fabricado", "Env_Pintura": "Já Enviado", "Aguardando_Envio": "Aguardando Despacho", "Data_Fabricacao": "Data Fabricação"}), use_container_width=True, hide_index=True)
         else: st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
 
-# 7. FALTA FABRICAR INTERNAMENTE
+# 7. FALTA FABRICAR
 with tab_falta_fab:
     if not df_trabalho.empty:
         df_p4 = df_trabalho[df_trabalho["Falta_Fabricar"] > 0].copy()
@@ -816,11 +764,11 @@ with tab_falta_fab:
         with c_btn:
             st.download_button("📥 Exportar Falta Fabricar (.xlsx)", data=gerar_excel_tabela(df_p4, "Falta_Fabricar"), file_name="Falta_Fabricar_Internamente.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if not df_p4.empty:
-            cols_fab = ["COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar"]
-            st.dataframe(df_p4[cols_fab].rename(columns={"COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Saldo a Produzir"}), use_container_width=True, hide_index=True)
+            cols_fab = ["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar"]
+            st.dataframe(df_p4[cols_fab].rename(columns={"OBS_NORM": "Observação (Lote)", "COD_PECA": "Código Peça", "Descricao": "Descrição", "Qtd_OP": "Programado OP", "Qtd_Fabr": "Já Fabricado", "Falta_Fabricar": "Saldo a Produzir"}), use_container_width=True, hide_index=True)
         else: st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
 
-# 8. COMPRAS E PROJETOS EXTERNADOS
+# 8. COMPRAS
 with tab_compras:
     if not df_comp_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -837,11 +785,11 @@ with tab_compras:
         df_comp_view = df_comp_trabalho.copy()
         if sel_forn: df_comp_view = df_comp_view[df_comp_view["Fornecedor"].isin(sel_forn)]
         if sel_st_comp: df_comp_view = df_comp_view[df_comp_view["Status_Compra"].isin(sel_st_comp)]
-        colunas_comp = ["TAT_BASE", "OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
-        st.dataframe(df_comp_view[colunas_comp].rename(columns={"TAT_BASE": "Projeto/TAT (K)", "OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)", "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)", "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)", "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
+        colunas_comp = ["OBS_NORM", "COD_PECA", "Descricao", "Fornecedor", "Qtd_Comprada", "Qtd_Entregue", "Saldo_Falta_Entregar", "NF_Entrega", "Data_Entrega", "Data_Fornecedor", "Status_Compra"]
+        st.dataframe(df_comp_view[colunas_comp].rename(columns={"OBS_NORM": "Observação (L)", "COD_PECA": "Código Peça (M)", "Descricao": "Descrição (N)", "Fornecedor": "Fornecedor (O)", "Qtd_Comprada": "QT Comprada (P)", "Qtd_Entregue": "QTD Entregue (Q)", "Saldo_Falta_Entregar": "FAL (R)", "NF_Entrega": "NF Ent. (T)", "Data_Entrega": "DT Ent. (S)", "Data_Fornecedor": "Data Fornecedor (U)", "Status_Compra": "Status"}), use_container_width=True, hide_index=True)
     else: st.info("Nenhuma planilha de Compras carregada ou nenhum item encontrado para o filtro selecionado.")
 
-# 9. SOLICITAÇÕES DE COMPRAS (SC EM ABERTO)
+# 9. SC EM ABERTO
 with tab_sc:
     if not df_sc_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
