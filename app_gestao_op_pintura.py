@@ -112,7 +112,6 @@ def salvar_meta(meta):
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
 def criar_backup_historico(data_str):
-    """Salva uma cópia completa das 4 bases em uma pasta de backup com limite de 5 versões."""
     stamp = datetime.now(FUSO_BRASILIA).strftime("%Y%m%d_%H%M%S")
     pasta_destino = os.path.join(BACKUPS_DIR, stamp)
     os.makedirs(pasta_destino, exist_ok=True)
@@ -122,11 +121,9 @@ def criar_backup_historico(data_str):
         if os.path.exists(p_orig):
             shutil.copy2(p_orig, os.path.join(pasta_destino, fname))
             
-    # Salva o arquivo de identificação daquele backup
     with open(os.path.join(pasta_destino, "info.json"), "w", encoding="utf-8") as f:
         json.dump({"timestamp": stamp, "data_formatada": data_str}, f)
 
-    # Mantém no máximo os 5 backups mais recentes
     todas_pastas = sorted(os.listdir(BACKUPS_DIR), reverse=True)
     if len(todas_pastas) > 5:
         for p_remover in todas_pastas[5:]:
@@ -168,6 +165,12 @@ def normalizar_texto(t):
     if pd.isna(t) or t is None: return ""
     s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', '').replace('\n', ' ')
     return re.sub(r'\s+', ' ', s).strip().upper()
+
+def extrair_tat_base(t):
+    t_clean = normalizar_texto(t)
+    m = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
+    if m: return m.group(1).strip()
+    return t_clean.split('-')[0].strip()
 
 def limpar_cod(c):
     if pd.isna(c) or c is None: return ""
@@ -268,10 +271,11 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
     catalogo_descricoes = {}
 
-    # 1. OP
+    # 1. OP (Busca flexível de Observação e TAT)
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
         col_obs_op = df_op_raw.columns[11] if len(df_op_raw.columns) >= 12 else buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
+        col_tat_op = buscar_col_flex(df_op_raw, ["TAT", "PROJETO", "PROJ", "DESENHO"])
         col_prod_op = buscar_col_flex(df_op_raw, ["PRODUTO", "COD PROD", "CODIGO"])
         col_desc_op = buscar_col_flex(df_op_raw, ["DESC. PROD", "DESCRICAO", "DESCRIÇÃO"])
         col_qtd_op = buscar_col_flex(df_op_raw, ["QUANTIDADE", "QUANTI", "QTD PLAN"])
@@ -281,6 +285,13 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
         df_op = df_op_raw.copy()
         df_op["OBS_NORM"] = df_op[col_obs_op].apply(normalizar_texto) if col_obs_op else ""
+        
+        # Identifica o TAT Base da OP
+        if col_tat_op:
+            df_op["TAT_BASE"] = df_op[col_tat_op].apply(extrair_tat_base)
+        else:
+            df_op["TAT_BASE"] = df_op["OBS_NORM"].apply(extrair_tat_base)
+
         df_op["COD_PECA"] = df_op[col_prod_op].apply(limpar_cod) if col_prod_op else ""
         df_op["DESC_PECA"] = df_op[col_desc_op].fillna("-").astype(str) if col_desc_op else "-"
         df_op["QTD_PLAN"] = df_op[col_qtd_op].apply(converter_num) if col_qtd_op else 0.0
@@ -321,6 +332,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
         df_rom = df_rom_raw.copy()
         df_rom["OBS_NORM"] = df_rom[col_obs_rom].apply(normalizar_texto) if col_obs_rom else ""
+        df_rom["TAT_BASE"] = df_rom["OBS_NORM"].apply(extrair_tat_base)
         df_rom["COD_PECA"] = df_rom[col_prod_rom].apply(limpar_cod) if col_prod_rom else ""
         df_rom["DESC_PECA"] = df_rom[col_desc_rom].fillna("-").astype(str) if col_desc_rom else "-"
         df_rom["QTD_ENV"] = df_rom[col_qtd_rom].apply(converter_num) if col_qtd_rom else 0.0
@@ -415,19 +427,34 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                 catalogo_descricoes[c] = d
 
-    # 5. Cruzamento Fábrica x Romaneio
+    # 5. Cruzamento com Reconciliação Automática de Produção (Fabricados)
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
 
+    # Dicionário de Fabricação por (TAT_BASE, COD_PECA) e por (COD_PECA)
+    mapa_prod_tat = {}
+    mapa_plan_tat = {}
+    mapa_data_fabr_tat = {}
+    
+    if not df_op.empty:
+        for _, r in df_op.iterrows():
+            chave_tat = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
+            mapa_prod_tat[chave_tat] = mapa_prod_tat.get(chave_tat, 0.0) + r["QTD_PROD"]
+            mapa_plan_tat[chave_tat] = mapa_plan_tat.get(chave_tat, 0.0) + r["QTD_PLAN"]
+            if r["DT_FABR"] != "-":
+                mapa_data_fabr_tat[chave_tat] = r["DT_FABR"]
+
     op_obs = df_op.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
+        TAT_BASE=("TAT_BASE", "first"),
         Descricao=("DESC_PECA", "first"),
         Qtd_OP=("QTD_PLAN", "sum"),
         Qtd_Fabr=("QTD_PROD", "sum"),
         Data_Fabricacao=("DT_FABR", format_unique_join)
-    ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
+    ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "TAT_BASE", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
 
     rom_obs = df_rom.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
+        TAT_BASE=("TAT_BASE", "first"),
         Descricao_Rom=("DESC_PECA", "first"),
         Env_Pintura=("QTD_ENV", "sum"),
         Ret_Pintura=("QTD_RET", "sum"),
@@ -437,11 +464,17 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
         NF_Retorno=("NF_RETORNO", format_unique_join),
         Data_Retorno=("DATA_RETORNO", format_unique_join),
         Fornecedor_Tratamento=("FORNECEDOR_TRAT", format_unique_join)
-    ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao_Rom", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
+    ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "TAT_BASE", "Descricao_Rom", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
 
     df_cruz_obs = pd.merge(op_obs, rom_obs, on=["OBS_NORM", "COD_PECA"], how="outer")
 
     if not df_cruz_obs.empty:
+        if "TAT_BASE_x" in df_cruz_obs.columns:
+            df_cruz_obs["TAT_BASE"] = df_cruz_obs["TAT_BASE_x"].fillna(df_cruz_obs["TAT_BASE_y"])
+            df_cruz_obs.drop(columns=["TAT_BASE_x", "TAT_BASE_y"], inplace=True)
+        elif "TAT_BASE" not in df_cruz_obs.columns:
+            df_cruz_obs["TAT_BASE"] = df_cruz_obs["OBS_NORM"].apply(extrair_tat_base)
+
         if "Descricao" not in df_cruz_obs.columns:
             df_cruz_obs["Descricao"] = "-"
         if "Descricao_Rom" in df_cruz_obs.columns:
@@ -457,11 +490,31 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             
         df_cruz_obs["Descricao"] = df_cruz_obs.apply(resolver_desc_catalogo, axis=1)
 
-        for col_str in ["Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
-            df_cruz_obs[col_str] = df_cruz_obs[col_str].fillna("-").astype(str)
         for col_num in ["Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "Saldo_Rua"]:
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
+
+        # RECONCILIAÇÃO AUTOMÁTICA DE FABRICADO:
+        # Se a linha veio do Romaneio e Qtd_Fabr está 0, busca na OP por TAT Base + Código da Peça
+        def reconciliar_fabricado(r):
+            q_fab = r["Qtd_Fabr"]
+            if q_fab > 0:
+                return q_fab
+            chave = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
+            return mapa_prod_tat.get(chave, 0.0)
+
+        def reconciliar_op(r):
+            q_op = r["Qtd_OP"]
+            if q_op > 0:
+                return q_op
+            chave = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
+            return mapa_plan_tat.get(chave, 0.0)
+
+        df_cruz_obs["Qtd_Fabr"] = df_cruz_obs.apply(reconciliar_fabricado, axis=1)
+        df_cruz_obs["Qtd_OP"] = df_cruz_obs.apply(reconciliar_op, axis=1)
+
+        for col_str in ["Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
+            df_cruz_obs[col_str] = df_cruz_obs[col_str].fillna("-").astype(str)
         
         df_cruz_obs.loc[df_cruz_obs["Env_Pintura"] == 0, "Fornecedor_Tratamento"] = "-"
         df_cruz_obs["Saldo_Pendente_Pintura"] = (df_cruz_obs["Env_Pintura"] - df_cruz_obs["Ret_Pintura"]).clip(lower=0.0)
@@ -496,7 +549,6 @@ with col_head_up:
             accept_multiple_files=True
         )
     with col_btn_acoes:
-        # Seletor de Histórico / Backups Salvos
         historicos = listar_historicos_disponiveis()
         opcoes_historico = ["📁 Versão Atual"] + [f"🕒 Backup: {h[1]}" for h in historicos]
         
@@ -531,7 +583,6 @@ if arquivos_enviados:
     if ids_atuais != st.session_state.ultimo_upload_ids:
         agora_str = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y às %H:%M")
         
-        # Cria backup da versão atual antes de sobrescrever
         criar_backup_historico(data_atualizacao)
         
         for f in arquivos_enviados:
@@ -585,7 +636,6 @@ if arquivos_enviados:
         st.session_state.ultimo_upload_ids = ids_atuais
         st.cache_data.clear()
 
-# Carrega a pasta selecionada (Atual ou Backup)
 pasta_carregar = STORAGE_DIR
 if escolha_versao != "📁 Versão Atual":
     idx = opcoes_historico.index(escolha_versao) - 1
