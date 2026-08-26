@@ -14,6 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Estilização CSS refinada
 st.markdown("""
 <style>
     * {
@@ -198,7 +199,6 @@ def processar_todas_as_bases(mtimes):
     df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
     df_sc_raw = pd.read_parquet(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else pd.DataFrame()
 
-    # Dicionário mestre para catalogar a descrição de cada código de peça
     catalogo_descricoes = {}
 
     # 1. OP
@@ -223,10 +223,9 @@ def processar_todas_as_bases(mtimes):
         df_op["MES"] = df_op["MES_ANO"].str.extract(r'/(\d{2})')[0]
         df_op["DT_FABR"] = df_op[col_dt_fim].apply(formatar_data_br) if col_dt_fim else "-"
 
-        # Alimenta o catálogo
         for _, r in df_op[["COD_PECA", "DESC_PECA"]].dropna().iterrows():
             c, d = str(r["COD_PECA"]).strip(), str(r["DESC_PECA"]).strip()
-            if c and d and d != "-":
+            if c and d and d not in ["-", "NAN", "NONE", ""]:
                 catalogo_descricoes[c] = d
 
     # 2. Romaneio
@@ -269,7 +268,7 @@ def processar_todas_as_bases(mtimes):
         if col_desc_rom:
             for _, r in df_rom[["COD_PECA", "DESC_PECA"]].dropna().iterrows():
                 c, d = str(r["COD_PECA"]).strip(), str(r["DESC_PECA"]).strip()
-                if c and d and d != "-" and c not in catalogo_descricoes:
+                if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                     catalogo_descricoes[c] = d
 
     # 3. Compras
@@ -309,7 +308,7 @@ def processar_todas_as_bases(mtimes):
 
         for _, r in df_comp[["COD_PECA", "Descricao"]].dropna().iterrows():
             c, d = str(r["COD_PECA"]).strip(), str(r["Descricao"]).strip()
-            if c and d and d != "-" and c not in catalogo_descricoes:
+            if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                 catalogo_descricoes[c] = d
 
     # 4. SC
@@ -346,10 +345,10 @@ def processar_todas_as_bases(mtimes):
 
         for _, r in df_sc[["COD_PECA", "Descricao"]].dropna().iterrows():
             c, d = str(r["COD_PECA"]).strip(), str(r["Descricao"]).strip()
-            if c and d and d != "-" and c not in catalogo_descricoes:
+            if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                 catalogo_descricoes[c] = d
 
-    # 5. Cruzamento Fábrica x Romaneio com Auto-Preenchimento Inteligente de Descrições
+    # 5. Cruzamento Fábrica x Romaneio
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
@@ -362,7 +361,7 @@ def processar_todas_as_bases(mtimes):
     ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
 
     rom_obs = df_rom.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
-        Descricao_Rom=("DESC_PECA", "first") if "DESC_PECA" in df_rom.columns else ("COD_PECA", lambda x: "-"),
+        Descricao_Rom=("DESC_PECA", "first"),
         Env_Pintura=("QTD_ENV", "sum"),
         Ret_Pintura=("QTD_RET", "sum"),
         Saldo_Rua=("SALDO_RUA", "sum"),
@@ -376,20 +375,21 @@ def processar_todas_as_bases(mtimes):
     df_cruz_obs = pd.merge(op_obs, rom_obs, on=["OBS_NORM", "COD_PECA"], how="outer")
 
     if not df_cruz_obs.empty:
-        # Preenchimento prioritário da Descrição
-        if "Descricao" not in df_cruz_obs.columns: df_cruz_obs["Descricao"] = "-"
+        # Recuperação robusta de descrição
+        if "Descricao" not in df_cruz_obs.columns:
+            df_cruz_obs["Descricao"] = "-"
         if "Descricao_Rom" in df_cruz_obs.columns:
-            df_cruz_obs["Descricao"] = df_cruz_obs["Descricao"].replace(["-", "", np.nan], df_cruz_obs["Descricao_Rom"])
+            cond_desc_vazia = df_cruz_obs["Descricao"].isna() | df_cruz_obs["Descricao"].isin(["-", "", "None", "nan"])
+            df_cruz_obs["Descricao"] = df_cruz_obs["Descricao"].where(~cond_desc_vazia, df_cruz_obs["Descricao_Rom"])
             df_cruz_obs.drop(columns=["Descricao_Rom"], inplace=True)
             
-        # Puxa do catálogo mestre global caso a linha continue sem descrição
-        def resgatar_desc(r):
+        def resolver_desc_catalogo(r):
             d = str(r["Descricao"]).strip()
             if d and d not in ["-", "NAN", "NONE", ""]:
                 return d
             return catalogo_descricoes.get(str(r["COD_PECA"]).strip(), "-")
             
-        df_cruz_obs["Descricao"] = df_cruz_obs.apply(resgatar_desc, axis=1)
+        df_cruz_obs["Descricao"] = df_cruz_obs.apply(resolver_desc_catalogo, axis=1)
 
         for col_str in ["Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
             df_cruz_obs[col_str] = df_cruz_obs[col_str].fillna("-").astype(str)
