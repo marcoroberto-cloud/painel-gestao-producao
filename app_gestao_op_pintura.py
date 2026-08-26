@@ -14,6 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Estilização CSS: Visual escuro, moderno, responsivo e com suporte a checkboxes fluidas
 st.markdown("""
 <style>
     * {
@@ -52,10 +53,6 @@ st.markdown("""
     [data-testid="stMetricLabel"] { font-size: 0.72rem !important; line-height: 1.1 !important; }
     [data-testid="stMetricDelta"] { font-size: 0.68rem !important; }
     
-    div[data-baseweb="select"] * { font-size: 0.75rem !important; white-space: normal !important; word-break: break-word !important; }
-    div[data-baseweb="tag"] { max-width: 100% !important; height: auto !important; white-space: normal !important; word-break: break-word !important; padding: 2px 6px !important; margin: 1px 0 !important; line-height: 1.2 !important; }
-    div[data-baseweb="tag"] span { font-size: 0.73rem !important; white-space: normal !important; word-break: break-word !important; }
-    
     .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
     .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.78rem; padding: 0 8px; white-space: nowrap; }
     
@@ -64,6 +61,18 @@ st.markdown("""
         border: 1px solid #30363d;
         border-radius: 8px;
         padding: 10px;
+        margin-bottom: 8px;
+    }
+    
+    /* Estilo dos itens de seleção */
+    .checkbox-container-box {
+        max-height: 250px;
+        overflow-y: auto;
+        background-color: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-top: 4px;
         margin-bottom: 8px;
     }
     
@@ -364,7 +373,7 @@ def processar_todas_as_bases(mtimes):
 
     return df_cruz_obs, df_comp, df_sc, df_op, df_rom, df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw
 
-# --- INTERFACE ---
+# --- CABEÇALHO ---
 col_head_tit, col_head_up = st.columns([1, 3])
 meta_atual = carregar_meta()
 data_atualizacao = meta_atual.get("ultima_atualizacao", "Nenhum arquivo salvo ainda")
@@ -389,6 +398,7 @@ with col_head_up:
             meta_atual["ultima_atualizacao"] = "Nenhum arquivo salvo ainda"
             salvar_meta(meta_atual)
             st.cache_data.clear()
+            st.session_state.obs_selecionadas_set = set()
             st.success("Arquivos resetados com sucesso!")
             st.rerun()
 
@@ -457,7 +467,7 @@ if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empt
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- FILTROS RÁPIDOS POR OBSERVAÇÃO ---
+# --- NOVO SISTEMA DE BUSCA DIRETA COM CHECKBOX FLUIDA ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
 todas_obs = set()
@@ -466,34 +476,54 @@ if not df_comp.empty and "OBS_NORM" in df_comp.columns: todas_obs.update(df_comp
 if not df_sc.empty and "OBS_NORM" in df_sc.columns: todas_obs.update(df_sc["OBS_NORM"].dropna().unique())
 lista_obs = sorted([str(p) for p in todas_obs if str(p).strip() and str(p) != "-"])
 
-# Inicializa itens marcados na sessão
-if "obs_selecionadas" not in st.session_state:
-    st.session_state.obs_selecionadas = []
+if "obs_selecionadas_set" not in st.session_state:
+    st.session_state.obs_selecionadas_set = set()
 
-col_pesq_obs, col_sel_obs, col_busca_peca = st.columns([1.2, 1.8, 1])
+col_busca_obs, col_busca_peca = st.columns([2.2, 1])
 
-with col_pesq_obs:
-    termo_filtro_obs = st.text_input("🔍 Filtrar opções de Observação:", placeholder="Ex: RUA, IVECO, USISOL...").strip().upper()
-
-# Filtra a lista de opções com base na pesquisa
-if termo_filtro_obs:
-    opcoes_mostradas = [obs for obs in lista_obs if termo_filtro_obs in obs]
-else:
-    opcoes_mostradas = lista_obs
-
-with col_sel_obs:
-    # Garante que as já selecionadas fiquem visíveis no multiselect
-    opcoes_completas_visiveis = sorted(list(set(opcoes_mostradas + st.session_state.obs_selecionadas)))
-    sel_obs_multi = st.multiselect(
-        "📝 Selecionar Observação(ões) de Lote:",
-        options=opcoes_completas_visiveis,
-        default=st.session_state.obs_selecionadas,
-        help="Digite na caixa ao lado para encurtar as opções da lista"
-    )
-    st.session_state.obs_selecionadas = sel_obs_multi
+with col_busca_obs:
+    termo_busca = st.text_input(
+        "🔍 Buscar e Flegar Projeto / Lote (Observação):",
+        placeholder="Digite o código ou nome (Ex: 11761.01G, IVECO, USISOL)..."
+    ).strip().upper()
 
 with col_busca_peca:
-    busca_cod = st.text_input("🔍 Buscar Código/Descrição:").strip().upper()
+    busca_cod = st.text_input("🔍 Buscar Peça (Código ou Descrição):").strip().upper()
+
+# Se digitou algo na busca, mostra a lista com checkboxes logo abaixo
+opcoes_filtradas = [obs for obs in lista_obs if termo_busca in obs] if termo_busca else []
+
+qtd_sel = len(st.session_state.obs_selecionadas_set)
+expander_titulo = f"📋 Opções encontradas para '{termo_busca}' ({len(opcoes_filtradas)} itens) — [{qtd_sel} selecionado(s)]" if termo_busca else f"📋 Ver/Flegar Lista de Observações [{qtd_sel} selecionado(s)]"
+
+with st.expander(expander_titulo, expanded=bool(termo_busca)):
+    lista_exibir = opcoes_filtradas if termo_busca else lista_obs
+    
+    col_b1, col_b2, _ = st.columns([1, 1, 3])
+    with col_b1:
+        if st.button("✅ Marcar Filtrados"):
+            for item in lista_exibir:
+                st.session_state.obs_selecionadas_set.add(item)
+            st.rerun()
+    with col_b2:
+        if st.button("🧹 Limpar Seleção"):
+            st.session_state.obs_selecionadas_set = set()
+            st.rerun()
+
+    # Container rolavel com os checkboxes
+    st.markdown('<div class="checkbox-container-box">', unsafe_allow_html=True)
+    for obs_item in lista_exibir:
+        checked_atual = obs_item in st.session_state.obs_selecionadas_set
+        marcou = st.checkbox(obs_item, value=checked_atual, key=f"chk_{obs_item}")
+        if marcou and not checked_atual:
+            st.session_state.obs_selecionadas_set.add(obs_item)
+            st.rerun()
+        elif not marcou and checked_atual:
+            st.session_state.obs_selecionadas_set.remove(obs_item)
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+sel_obs_multi = list(st.session_state.obs_selecionadas_set)
 
 df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
@@ -503,7 +533,7 @@ if sel_obs_multi:
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns: df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
     if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi)]
     if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-    projeto_ativo_nome = ", ".join(sel_obs_multi)
+    projeto_ativo_nome = ", ".join(sel_obs_multi[:3]) + ("..." if len(sel_obs_multi) > 3 else "")
 else:
     projeto_ativo_nome = "Todas as Observações"
 
