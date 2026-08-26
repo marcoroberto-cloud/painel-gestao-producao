@@ -1,5 +1,6 @@
 streamlit
 pandas
+numpy
 openpyxl
 pyarrow
-python-calamine
+python-calaminee
