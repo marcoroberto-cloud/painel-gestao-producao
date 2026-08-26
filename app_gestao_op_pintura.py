@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS refinada
+# Estilização CSS refinada para contraste claro, limpeza visual e visualização mobile
 st.markdown("""
 <style>
     * {
@@ -27,8 +27,8 @@ st.markdown("""
     .block-container {
         padding-top: 3.5rem !important;
         padding-bottom: 1rem !important;
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
+        padding-left: 0.6rem !important;
+        padding-right: 0.6rem !important;
         max-width: 100% !important;
     }
     [data-testid="stSidebar"] { display: none !important; }
@@ -37,44 +37,59 @@ st.markdown("""
         position: sticky;
         top: 2.8rem;
         z-index: 999;
-        background-color: #0e1117;
-        padding: 8px 12px;
-        border-bottom: 2px solid #30363d;
-        border-radius: 8px;
-        margin-bottom: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+        background-color: #161b22;
+        padding: 10px 14px;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        margin-bottom: 14px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.6);
     }
     
     [data-testid="stMetricValue"] {
-        font-size: 1.05rem !important;
+        font-size: 1.15rem !important;
         font-weight: 700 !important;
-        color: #1E88E5 !important;
+        color: #58a6ff !important;
         line-height: 1.1 !important;
     }
-    [data-testid="stMetricLabel"] { font-size: 0.72rem !important; line-height: 1.1 !important; }
-    [data-testid="stMetricDelta"] { font-size: 0.68rem !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.75rem !important; line-height: 1.1 !important; color: #c9d1d9 !important; }
+    [data-testid="stMetricDelta"] { font-size: 0.70rem !important; }
     
-    div[data-baseweb="select"] * { font-size: 0.76rem !important; line-height: 1.25 !important; }
+    div[data-baseweb="select"] * { font-size: 0.78rem !important; line-height: 1.25 !important; }
     div[data-baseweb="tag"] { 
         background-color: #1f6feb !important; 
         color: #ffffff !important;
         border-radius: 4px !important;
-        padding: 1px 6px !important; 
+        padding: 2px 8px !important; 
         margin: 1px !important;
     }
-    div[data-baseweb="tag"] span { font-size: 0.72rem !important; color: #ffffff !important; }
+    div[data-baseweb="tag"] span { font-size: 0.74rem !important; color: #ffffff !important; }
     
-    .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
-    .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.78rem; padding: 0 8px; white-space: nowrap; }
+    .stTabs [data-baseweb="tab-list"] { gap: 6px; overflow-x: auto; }
+    .stTabs [data-baseweb="tab"] { height: 38px; font-weight: 600; font-size: 0.80rem; padding: 0 10px; white-space: nowrap; border-radius: 6px; }
     
-    .card-mobile-kpi {
-        background-color: #161b22;
+    /* Novos cards de alto contraste e layout limpo */
+    .card-mobile-clean {
+        background-color: #1c2128;
         border: 1px solid #30363d;
-        border-radius: 8px;
-        padding: 10px;
-        margin-bottom: 8px;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     }
+    .card-mobile-clean b { color: #f0f6fc; }
     
+    .badge-status {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    .badge-ok { background-color: rgba(46, 160, 67, 0.2); color: #3fb950; border: 1px solid #2ea043; }
+    .badge-warn { background-color: rgba(210, 153, 34, 0.2); color: #d29922; border: 1px solid #d29922; }
+    .badge-alert { background-color: rgba(248, 81, 73, 0.2); color: #ff7b72; border: 1px solid #f85149; }
+
     [data-testid="stDataFrame"] {
         width: 100% !important;
         min-height: 500px !important;
@@ -423,7 +438,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                 catalogo_descricoes[c] = d
 
-    # 5. Cruzamento Estrito por Observação de Lote (Chave única: OBS_NORM + COD_PECA)
+    # 5. Cruzamento Estrito por Observação de Lote
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
@@ -469,7 +484,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
 
-        # Se veio da base de Romaneio com produção já entregue, o fabricado mínimo do lote é o que já foi enviado/retornado
+        # Regra de ouro da fábrica: Se o Romaneio já enviou/retornou a peça daquele lote, o fabricado mínimo daquele lote é o enviado
         df_cruz_obs["Qtd_Fabr"] = np.maximum(df_cruz_obs["Qtd_Fabr"], df_cruz_obs["Env_Pintura"])
         df_cruz_obs["Qtd_OP"] = np.maximum(df_cruz_obs["Qtd_OP"], df_cruz_obs["Qtd_Fabr"])
 
@@ -659,17 +674,20 @@ if sel_obs_compras:
         df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_compras)]
     tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "")
 elif sel_obs_fabrica:
-    termos_busca = []
+    # Identifica o padrão específico do lote (ex: LOTE 13+67, LOTE 19, etc.)
+    termos_estritos = []
     for obs in sel_obs_fabrica:
         m_lote = re.search(r'(LOTE\s*[\d\+\w]+)', obs)
-        m_tat = re.search(r'(TAT\s*[\d\.\w]+)', obs)
-        if m_lote: termos_busca.append(m_lote.group(1).strip())
-        if m_tat: termos_busca.append(m_tat.group(1).strip())
-        if not m_lote and not m_tat: termos_busca.append(obs[:25])
+        if m_lote: 
+            termos_estritos.append(m_lote.group(1).strip())
+        else:
+            m_tat = re.search(r'(\d{5}\.\d{2}[A-Z0-9]*)', obs)
+            if m_tat: termos_estritos.append(m_tat.group(1).strip())
 
     def match_estrito_compras(obs_val):
         t = str(obs_val).upper()
-        return any(term in t for term in termos_busca)
+        if not termos_estritos: return True
+        return any(term in t for term in termos_estritos)
 
     if not df_comp_trabalho.empty:
         df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].apply(match_estrito_compras)]
@@ -677,12 +695,12 @@ elif sel_obs_fabrica:
     if not df_sc_trabalho.empty:
         df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].apply(match_estrito_compras)]
         
-    tit_comp = "Auto-vinculado ao Lote Selecionado"
+    tit_comp = "Auto-vinculado ao Lote"
 else:
     tit_comp = "Todas as Compras"
 
 tit_fab = ", ".join(sel_obs_fabrica[:1]) + ("..." if len(sel_obs_fabrica) > 1 else "") if sel_obs_fabrica else "Todas as OPs"
-projeto_ativo_nome = f"Fábrica: [{tit_fab}] | Compras: [{tit_comp}]"
+projeto_ativo_nome = f"{tit_fab}" if not sel_obs_compras else f"Fábrica: [{tit_fab}] | Compras: [{tit_comp}]"
 
 if busca_cod:
     if not df_trabalho.empty:
@@ -736,56 +754,120 @@ tab_mobile, tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard
     "📋 SC em Aberto", "📑 Base OP", "🎨 Base Romaneio", "🛒 Base Compras"
 ])
 
-# 1. RESUMO EXECUTIVO
+# ==============================================================================
+# 1. ABA RESUMO EXECUTIVO (CELULAR / MOBILE FIRST ULTRA CLEAN & COMPLETO)
+# ==============================================================================
 with tab_mobile:
-    st.markdown(f"#### 📱 Resumo: `{projeto_ativo_nome}`")
-    pct_pronto = (tot_ret / tot_op * 100) if tot_op > 0 else 0
-    st.markdown(f"**Prontidão Geral da Estrutura Metálica: `{pct_pronto:.1f}%`**")
-    st.progress(min(max(pct_pronto / 100.0, 0.0), 1.0))
+    pct_pronto = (tot_ret / tot_op * 100) if tot_op > 0 else (100.0 if tot_op == 0 and tot_ret > 0 else 0.0)
     
-    m_c1, m_c2 = st.columns(2)
-    with m_c1:
+    # 1.1 Status Global do Projeto
+    st.markdown(f"### 📱 Diagnóstico Rápido: `{projeto_ativo_nome}`")
+    
+    # Determina o Status Geral
+    if saldo_rua == 0 and falta_fab == 0 and falta_env == 0 and saldo_compra == 0 and tot_sc_aberto == 0 and tot_ret > 0:
+        status_geral_badge = '<span class="badge-status badge-ok">✅ PROJETO 100% PRONTO & LIBERADO PARA MONTAGEM</span>'
+    elif saldo_rua > 0:
+        status_geral_badge = f'<span class="badge-status badge-warn">⏳ AGUARDANDO RETORNO DE PINTURA ({saldo_rua} pçs na rua)</span>'
+    elif falta_fab > 0:
+        status_geral_badge = f'<span class="badge-status badge-alert">⚙️ GARGALO NA FÁBRICA ({falta_fab} pçs a produzir)</span>'
+    else:
+        status_geral_badge = '<span class="badge-status badge-ok">🚀 FLUXO NORMAL EM ANDAMENTO</span>'
+
+    st.markdown(status_geral_badge, unsafe_allow_html=True)
+    st.progress(min(max(pct_pronto / 100.0, 0.0), 1.0))
+    st.caption(f"**Prontidão Metálica Total:** `{pct_pronto:.1f}%` ({tot_ret:,} de {tot_op:,} peças prontas)")
+
+    # 1.2 Cartões 2x2 Clean de Resumo
+    m1, m2 = st.columns(2)
+    with m1:
         st.markdown(f"""
-        <div class="card-mobile-kpi">
-            <span style="font-size:0.8rem; color:#8b949e;">⚙️ FABRICAÇÃO INTERNA</span><br>
-            <b style="font-size:1.1rem; color:#1E88E5;">{tot_fab:,} / {tot_op:,} pçs</b><br>
-            <span style="font-size:0.75rem; color:{'#ff7b72' if falta_fab > 0 else '#3fb950'};">
-                {'⚠️ Falta produzir: ' + str(falta_fab) + ' pçs' if falta_fab > 0 else '✅ 100% Produzido'}
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">🏗️ ESTRUTURA METÁLICA (FÁBRICA)</span><br>
+            <b style="font-size:1.15rem; color:#58a6ff;">{tot_fab:,} / {tot_op:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:{'#ff7b72' if falta_fab > 0 else '#3fb950'}; font-weight:600;">
+                {'⚠️ Falta fabricar: ' + str(falta_fab) + ' pçs' if falta_fab > 0 else '✅ 100% Produzido na fábrica'}
             </span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div class="card-mobile-kpi">
-            <span style="font-size:0.8rem; color:#8b949e;">🚚 EXPEDIÇÃO / DESPACHO</span><br>
-            <b style="font-size:1.1rem; color:#d29922;">{falta_env:,} pçs</b><br>
-            <span style="font-size:0.75rem; color:#8b949e;">Aguardando envio p/ tratamento</span>
         </div>
         """, unsafe_allow_html=True)
 
-    with m_c2:
         st.markdown(f"""
-        <div class="card-mobile-kpi">
-            <span style="font-size:0.8rem; color:#8b949e;">🎨 TRATAMENTO / PINTURA</span><br>
-            <b style="font-size:1.1rem; color:#1E88E5;">{tot_ret:,} / {tot_env:,} pçs</b><br>
-            <span style="font-size:0.75rem; color:{'#ff7b72' if saldo_rua > 0 else '#3fb950'};">
-                {'🚨 Na rua (pendente): ' + str(saldo_rua) + ' pçs' if saldo_rua > 0 else '✅ 100% Retornado'}
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">🚚 EXPEDIÇÃO / DESPACHO</span><br>
+            <b style="font-size:1.15rem; color:#d29922;">{falta_env:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:{'#d29922' if falta_env > 0 else '#3fb950'}; font-weight:600;">
+                {'⏳ Fabricado aguardando envio' if falta_env > 0 else '✅ Todas as peças fabricadas foram enviadas'}
             </span>
         </div>
         """, unsafe_allow_html=True)
-        
+
+    with m2:
         st.markdown(f"""
-        <div class="card-mobile-kpi">
-            <span style="font-size:0.8rem; color:#8b949e;">📦 COMPRAS & SC</span><br>
-            <b style="font-size:1.1rem; color:#58a6ff;">{tot_entregue:,}/{tot_comprado:,} pçs</b><br>
-            <span style="font-size:0.75rem; color:{'#ff7b72' if tot_sc_aberto > 0 else '#8b949e'};">
-                {str(qtd_itens_sc) + ' SC em aberto (' + str(tot_sc_aberto) + ' pçs)' if tot_sc_aberto > 0 else 'Sem SCs pendentes'}
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">🎨 TRATAMENTO / PINTURA</span><br>
+            <b style="font-size:1.15rem; color:#58a6ff;">{tot_ret:,} / {tot_env:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:{'#ff7b72' if saldo_rua > 0 else '#3fb950'}; font-weight:600;">
+                {'🚨 Na rua (pendente): ' + str(saldo_rua) + ' pçs' if saldo_rua > 0 else '✅ 100% Retornado da pintura'}
             </span>
         </div>
         """, unsafe_allow_html=True)
-        
+
+        st.markdown(f"""
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">📦 COMPRAS & SC EXTERNAS</span><br>
+            <b style="font-size:1.15rem; color:#58a6ff;">{tot_entregue:,} / {tot_comprado:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:{'#ff7b72' if saldo_compra > 0 or tot_sc_aberto > 0 else '#3fb950'}; font-weight:600;">
+                {'🚨 Falta entregar: ' + str(saldo_compra) + ' pçs (' + str(qtd_itens_sc) + ' SCs)' if (saldo_compra > 0 or tot_sc_aberto > 0) else '✅ Compras 100% entregues'}
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.markdown("---")
-    st.markdown("##### 📍 Onde estão as peças na rua por Fornecedor:")
+
+    # 1.3 Detalhamento por Tipologia / Conjunto do Carro
+    st.markdown("#### 🚗 Peças por Tipo / Conjunto do Veículo:")
+    if not df_trabalho.empty:
+        # Extrai a tipologia básica pelo início da descrição ou código
+        def classificar_tipo(desc):
+            d = str(desc).upper()
+            if "DIVISORIA" in d: return "🚪 Divisórias de Cela"
+            elif "ESTRIBO" in d: return "🪜 Estribos Laterais"
+            elif "CONSOLE" in d or "ACABAMENTO" in d or "CHAPA" in d: return "📐 Chapas & Acabamentos"
+            elif "SUP" in d or "SUPORTE" in d: return "🔧 Suportes & Fixações"
+            elif "GRADE" in d or "VIDRO" in d: return "🛡️ Grades & Vidros"
+            elif "BANCO" in d or "CADEIRA" in d: return "💺 Bancos & Assentos"
+            else: return "🔩 Estruturas Diversas"
+
+        df_trabalho_tipo = df_trabalho.copy()
+        df_trabalho_tipo["TIPO_CONJUNTO"] = df_trabalho_tipo["Descricao"].apply(classificar_tipo)
+        
+        tipos_agg = df_trabalho_tipo.groupby("TIPO_CONJUNTO", as_index=False).agg(
+            Total_Necessario=("Qtd_OP", "sum"),
+            Ja_Retornado=("Ret_Pintura", "sum"),
+            Pendente_Rua=("Saldo_Pendente_Pintura", "sum"),
+            Qtd_Itens=("COD_PECA", "count")
+        )
+
+        col_t1, col_t2 = st.columns(2)
+        for i, r_tipo in tipos_agg.iterrows():
+            alvo_col = col_t1 if i % 2 == 0 else col_t2
+            with alvo_col:
+                pct_tipo = (r_tipo['Ja_Retornado'] / r_tipo['Total_Necessario'] * 100) if r_tipo['Total_Necessario'] > 0 else 100.0
+                st.markdown(f"""
+                <div class="card-mobile-clean">
+                    <b>{r_tipo['TIPO_CONJUNTO']}</b> ({r_tipo['Qtd_Itens']} modelos)<br>
+                    <span style="font-size:0.85rem; color:#58a6ff;"><b>{int(r_tipo['Ja_Retornado']):,} / {int(r_tipo['Total_Necessario']):,} pçs</b> ({pct_tipo:.0f}% prontas)</span><br>
+                    <span style="font-size:0.75rem; color:{'#ff7b72' if r_tipo['Pendente_Rua'] > 0 else '#3fb950'};">
+                        {'🚨 ' + str(int(r_tipo['Pendente_Rua'])) + ' peças na pintura' if r_tipo['Pendente_Rua'] > 0 else '✅ 100% pronto no estoque'}
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.info("Nenhuma peça metálica filtrada.")
+
+    st.markdown("---")
+
+    # 1.4 Localização Exata das Peças na Rua (Pintura / Fornecedores)
+    st.markdown("#### 📍 Onde estão as peças na rua agora?")
     if not df_trabalho.empty:
         df_na_rua = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0]
         if not df_na_rua.empty:
@@ -793,20 +875,33 @@ with tab_mobile:
                 saldo_forn = int(group["Saldo_Pendente_Pintura"].sum())
                 with st.expander(f"🔴 **{forn}**: {saldo_forn:,} peças pendentes ({len(group)} itens)"):
                     for _, r in group.iterrows():
-                        st.markdown(f"• **`{r['COD_PECA']}`** ({r['Descricao'][:35]}): **{int(r['Saldo_Pendente_Pintura'])} pçs** | Romaneio: `{r['Doc_Romaneio']}` ({r['Data_Envio']})")
+                        st.markdown(f"• **`{r['COD_PECA']}`** ({r['Descricao'][:40]}): **{int(r['Saldo_Pendente_Pintura'])} pçs** | Romaneio: `{r['Doc_Romaneio']}` (Envio: {r['Data_Envio']})")
         else:
-            st.success("🎉 Todas as peças enviadas para tratamento já retornaram 100% prontas!")
+            st.success("🎉 Nenhuma peça na rua! 100% das peças enviadas para tratamento já retornaram.")
     
-    st.markdown("##### ⚠️ O que falta fabricar internamente:")
-    if not df_trabalho.empty:
-        df_gargalo_fab = df_trabalho[df_trabalho["Falta_Fabricar"] > 0].sort_values("Falta_Fabricar", ascending=False).head(5)
-        if not df_gargalo_fab.empty:
-            for _, r in df_gargalo_fab.iterrows():
-                st.markdown(f"• **`{r['COD_PECA']}`** — Falta: **{int(r['Falta_Fabricar'])} pçs** (Prog: {int(r['Qtd_OP'])}, Fab: {int(r['Qtd_Fabr'])}) | *{r['Descricao'][:40]}*")
-        else:
-            st.success("🎉 Nenhuma peça pendente de fabricação interna!")
+    st.markdown("---")
 
-# 2. BALANÇO COMPLETO METÁLICOS
+    # 1.5 Ordens de Compras e Solicitações Externas do Projeto
+    st.markdown("#### 📦 Compras e Itens Externos do Projeto:")
+    if not df_comp_trabalho.empty or not df_sc_trabalho.empty:
+        if saldo_compra == 0 and tot_sc_aberto == 0:
+            st.success("🎉 Tudo certo com Compras! Todos os itens comprados foram 100% entregues e não há SCs em aberto.")
+        else:
+            if not df_comp_trabalho.empty:
+                df_comp_pend = df_comp_trabalho[df_comp_trabalho["Saldo_Falta_Entregar"] > 0]
+                if not df_comp_pend.empty:
+                    with st.expander(f"🚚 **Ordens de Compra Pendentes de Entrega ({len(df_comp_pend)} itens | {saldo_compra:,} pçs)**", expanded=True):
+                        for _, rc in df_comp_pend.iterrows():
+                            st.markdown(f"• **`{rc['COD_PECA']}`** ({rc['Descricao'][:35]}): Falta **{int(rc['Saldo_Falta_Entregar'])} pçs** | Fornecedor: `{rc['Fornecedor']}` | Previsão: `{rc['Data_Fornecedor']}`")
+            
+            if not df_sc_trabalho.empty:
+                with st.expander(f"📋 **Solicitações de Compra em Aberto ({qtd_itens_sc} itens | {tot_sc_aberto:,} pçs)**", expanded=True):
+                    for _, rsc in df_sc_trabalho.iterrows():
+                        st.markdown(f"• **`{rsc['COD_PECA']}`** ({rsc['Descricao'][:35]}): **{int(rsc['Qtd_SC'])} pçs** | SC Nº: `{rsc['Num_SC']}` | Solicitante: `{rsc['Solicitante']}`")
+    else:
+        st.info("Nenhuma ordem de compra cadastrada para este lote.")
+
+# 2. BALANÇO COMPLETO METÁLICOS (ORDEM EXATA COM TODAS AS COLUNAS)
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
