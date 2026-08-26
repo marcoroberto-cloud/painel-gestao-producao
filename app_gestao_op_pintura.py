@@ -170,6 +170,8 @@ def extrair_tat_base(t):
     t_clean = normalizar_texto(t)
     m = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
     if m: return m.group(1).strip()
+    m2 = re.search(r'(\d{5}\.[\d\.\w]+)', t_clean)
+    if m2: return f"TAT {m2.group(1).strip()}"
     return t_clean.split('-')[0].strip()
 
 def limpar_cod(c):
@@ -271,7 +273,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
     catalogo_descricoes = {}
 
-    # 1. OP (Busca flexível de Observação e TAT)
+    # 1. OP
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
         col_obs_op = df_op_raw.columns[11] if len(df_op_raw.columns) >= 12 else buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
@@ -286,7 +288,6 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
         df_op = df_op_raw.copy()
         df_op["OBS_NORM"] = df_op[col_obs_op].apply(normalizar_texto) if col_obs_op else ""
         
-        # Identifica o TAT Base da OP
         if col_tat_op:
             df_op["TAT_BASE"] = df_op[col_tat_op].apply(extrair_tat_base)
         else:
@@ -366,6 +367,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
         df_comp = df_comp_raw.copy()
         df_comp["OBS_NORM"] = df_comp[col_obs_comp].apply(normalizar_texto) if col_obs_comp else ""
+        df_comp["TAT_BASE"] = df_comp["OBS_NORM"].apply(extrair_tat_base)
         df_comp["COD_PECA"] = df_comp[col_prod_comp].apply(limpar_cod) if col_prod_comp else ""
         df_comp["Descricao"] = df_comp[col_desc_comp].fillna("-").astype(str) if col_desc_comp else "-"
         df_comp["Fornecedor"] = df_comp[col_forn_comp].fillna("-").astype(str) if col_forn_comp else "-"
@@ -409,6 +411,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
         df_sc = df_sc_raw.copy()
         df_sc["OBS_NORM"] = df_sc[col_obs_sc].apply(normalizar_texto) if col_obs_sc else ""
+        df_sc["TAT_BASE"] = df_sc["OBS_NORM"].apply(extrair_tat_base)
         df_sc["COD_PECA"] = df_sc[col_prod_sc].apply(limpar_cod) if col_prod_sc else ""
         df_sc["Filial"] = df_sc[col_filial_sc].fillna("-").astype(str) if col_filial_sc else "-"
         df_sc["Num_SC"] = df_sc[col_num_sc].fillna("-").astype(str) if col_num_sc else "-"
@@ -427,23 +430,22 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                 catalogo_descricoes[c] = d
 
-    # 5. Cruzamento com Reconciliação Automática de Produção (Fabricados)
+    # 5. Cruzamento Inteligente de Fábrica x Romaneio
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
 
-    # Dicionário de Fabricação por (TAT_BASE, COD_PECA) e por (COD_PECA)
+    # Mapas de busca para produção
     mapa_prod_tat = {}
     mapa_plan_tat = {}
-    mapa_data_fabr_tat = {}
     
     if not df_op.empty:
         for _, r in df_op.iterrows():
-            chave_tat = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
+            t_base = str(r["TAT_BASE"]).strip()
+            c_peca = str(r["COD_PECA"]).strip()
+            chave_tat = (t_base, c_peca)
             mapa_prod_tat[chave_tat] = mapa_prod_tat.get(chave_tat, 0.0) + r["QTD_PROD"]
             mapa_plan_tat[chave_tat] = mapa_plan_tat.get(chave_tat, 0.0) + r["QTD_PLAN"]
-            if r["DT_FABR"] != "-":
-                mapa_data_fabr_tat[chave_tat] = r["DT_FABR"]
 
     op_obs = df_op.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
         TAT_BASE=("TAT_BASE", "first"),
@@ -494,19 +496,16 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
 
-        # RECONCILIAÇÃO AUTOMÁTICA DE FABRICADO:
-        # Se a linha veio do Romaneio e Qtd_Fabr está 0, busca na OP por TAT Base + Código da Peça
+        # RECONCILIAÇÃO AUTOMÁTICA DE FABRICADO
         def reconciliar_fabricado(r):
             q_fab = r["Qtd_Fabr"]
-            if q_fab > 0:
-                return q_fab
+            if q_fab > 0: return q_fab
             chave = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
             return mapa_prod_tat.get(chave, 0.0)
 
         def reconciliar_op(r):
             q_op = r["Qtd_OP"]
-            if q_op > 0:
-                return q_op
+            if q_op > 0: return q_op
             chave = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
             return mapa_plan_tat.get(chave, 0.0)
 
@@ -676,7 +675,7 @@ with col_f_comp:
     sel_obs_compras = st.multiselect(
         "📦 2. Lotes Compras / SC:",
         options=lista_obs_compras,
-        placeholder="Digite parte do lote (Compras / SC)..."
+        placeholder="Opcional: vincular manualmente..."
     )
 
 with col_f_busca:
@@ -686,18 +685,37 @@ df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
 df_sc_trabalho = df_sc.copy() if not df_sc.empty else pd.DataFrame()
 
+# 1. Filtra base de Fábrica / Romaneio
 if sel_obs_fabrica:
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns:
         df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_fabrica)]
 
+# 2. Regra de Compras e SC: Se o filtro 2 estiver vazio, herda automaticamente do filtro 1!
 if sel_obs_compras:
+    # Seleção manual explícita
     if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns:
         df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_compras)]
     if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns:
         df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_compras)]
+    tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "")
+elif sel_obs_fabrica:
+    # Herança automática inteligente por Observação ou por TAT Base
+    tats_herdados = set([extrair_tat_base(obs) for obs in sel_obs_fabrica if extrair_tat_base(obs)])
+    
+    if not df_comp_trabalho.empty:
+        c_obs_c = df_comp_trabalho["OBS_NORM"].isin(sel_obs_fabrica) if "OBS_NORM" in df_comp_trabalho.columns else False
+        c_tat_c = df_comp_trabalho["TAT_BASE"].isin(tats_herdados) if "TAT_BASE" in df_comp_trabalho.columns else False
+        df_comp_trabalho = df_comp_trabalho[c_obs_c | c_tat_c]
+        
+    if not df_sc_trabalho.empty:
+        c_obs_s = df_sc_trabalho["OBS_NORM"].isin(sel_obs_fabrica) if "OBS_NORM" in df_sc_trabalho.columns else False
+        c_tat_s = df_sc_trabalho["TAT_BASE"].isin(tats_herdados) if "TAT_BASE" in df_sc_trabalho.columns else False
+        df_sc_trabalho = df_sc_trabalho[c_obs_s | c_tat_s]
+    tit_comp = "Auto-vinculado pela Fábrica"
+else:
+    tit_comp = "Todas as Compras"
 
 tit_fab = ", ".join(sel_obs_fabrica[:1]) + ("..." if len(sel_obs_fabrica) > 1 else "") if sel_obs_fabrica else "Todas as OPs"
-tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "") if sel_obs_compras else "Todas as Compras"
 projeto_ativo_nome = f"Fábrica: [{tit_fab}] | Compras: [{tit_comp}]"
 
 if busca_cod:
@@ -822,7 +840,7 @@ with tab_mobile:
         else:
             st.success("🎉 Nenhuma peça pendente de fabricação interna!")
 
-# 2. BALANÇO COMPLETO METÁLICOS
+# 2. BALANÇO COMPLETO METÁLICOS (SEQUÊNCIA EXATA SOLICITADA)
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -830,18 +848,28 @@ with tab_metalicos:
         with c_btn:
             st.download_button("📥 Exportar Balanço (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
-        colunas_balanco = ["OBS_NORM", "Fornecedor_Tratamento", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Falta_Fabricar", "Env_Pintura", "Ret_Pintura", "Saldo_Pendente_Pintura", "Aguardando_Envio", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Status"]
+        colunas_balanco_ordem = [
+            "COD_PECA", "Descricao", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", 
+            "Saldo_Pendente_Pintura", "Falta_Fabricar", "Qtd_OP", "Aguardando_Envio", 
+            "Doc_Romaneio", "Data_Envio", "Fornecedor_Tratamento", "NF_Retorno", "Data_Retorno", "Status"
+        ]
         
         st.dataframe(
-            df_trabalho[colunas_balanco].rename(columns={
-                "OBS_NORM": "Observação (Lote)",
+            df_trabalho[colunas_balanco_ordem].rename(columns={
+                "COD_PECA": "Código da Peça",
+                "Descricao": "Descrição",
+                "Qtd_Fabr": "Já Fabricado",
+                "Env_Pintura": "O que Saiu (Enviado)",
+                "Ret_Pintura": "O que Voltou (Retornado)",
+                "Saldo_Pendente_Pintura": "Falta Retornar (Saldo Rua)",
+                "Falta_Fabricar": "Não Produziu (Falta Fabr.)",
+                "Qtd_OP": "Total Programado (OP)",
+                "Aguardando_Envio": "Aguardando Despacho",
+                "Doc_Romaneio": "Romaneio / Remessa Envio",
+                "Data_Envio": "Data do Envio",
                 "Fornecedor_Tratamento": "Fornecedor (Onde está / Entregou)",
-                "COD_PECA": "Código da Peça", "Descricao": "Descrição",
-                "Qtd_OP": "Total Programado (OP)", "Qtd_Fabr": "Já Fabricado",
-                "Falta_Fabricar": "Não Produziu (Falta Fabr.)", "Env_Pintura": "O que Saiu (Enviado)",
-                "Ret_Pintura": "O que Voltou (Retornado)", "Saldo_Pendente_Pintura": "Falta Retornar (Saldo Rua)",
-                "Aguardando_Envio": "Aguardando Despacho", "Doc_Romaneio": "Romaneio / Remessa Envio",
-                "Data_Envio": "Data do Envio", "NF_Retorno": "NF Retorno", "Data_Retorno": "Data do Retorno",
+                "NF_Retorno": "NF Retorno",
+                "Data_Retorno": "Data do Retorno",
                 "Status": "Status do Fluxo"
             }),
             use_container_width=True,
