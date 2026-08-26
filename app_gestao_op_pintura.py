@@ -168,10 +168,8 @@ def normalizar_texto(t):
 
 def extrair_tat_base(t):
     t_clean = normalizar_texto(t)
-    # Extrai padrão TAT XXXXX.XX ou número puro XXXXX.XX
     m = re.search(r'(\d{5}\.\d{2}[A-Z0-9]*)', t_clean)
     if m:
-        # Pega a raiz numérica (ex: 11761.01)
         raiz = re.sub(r'[A-Z].*$', '', m.group(1).strip())
         return f"TAT {raiz}" if not raiz.startswith("TAT") else raiz
     m2 = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
@@ -445,8 +443,6 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
     mapa_plan_obs = {}
     mapa_prod_tat = {}
     mapa_plan_tat = {}
-    mapa_prod_peca = {}
-    mapa_plan_peca = {}
     
     if not df_op.empty:
         for _, r in df_op.iterrows():
@@ -459,9 +455,6 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             
             mapa_prod_tat[(tat, peca)] = mapa_prod_tat.get((tat, peca), 0.0) + r["QTD_PROD"]
             mapa_plan_tat[(tat, peca)] = mapa_plan_tat.get((tat, peca), 0.0) + r["QTD_PLAN"]
-
-            mapa_prod_peca[peca] = mapa_prod_peca.get(peca, 0.0) + r["QTD_PROD"]
-            mapa_plan_peca[peca] = mapa_plan_peca.get(peca, 0.0) + r["QTD_PLAN"]
 
     op_obs = df_op.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
         TAT_BASE=("TAT_BASE", "first"),
@@ -512,33 +505,28 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
 
-        # RECONCILIAÇÃO PRECISA DE FABRICADO E PROGRAMADO (OP)
+        # RECONCILIAÇÃO PRECISA DE FABRICADO E PROGRAMADO
         def reconciliar_fabricado(r):
             q_fab = r["Qtd_Fabr"]
             if q_fab > 0: return q_fab
-            
             obs = str(r["OBS_NORM"]).strip()
             tat = str(r["TAT_BASE"]).strip()
             peca = str(r["COD_PECA"]).strip()
             
-            # 1. Tenta por observação exata
             if (obs, peca) in mapa_prod_obs: return mapa_prod_obs[(obs, peca)]
-            # 2. Tenta por TAT Base
             if (tat, peca) in mapa_prod_tat: return mapa_prod_tat[(tat, peca)]
-            # 3. Tenta por código de peça
-            return mapa_prod_peca.get(peca, 0.0)
+            return 0.0
 
         def reconciliar_op(r):
             q_op = r["Qtd_OP"]
             if q_op > 0: return q_op
-            
             obs = str(r["OBS_NORM"]).strip()
             tat = str(r["TAT_BASE"]).strip()
             peca = str(r["COD_PECA"]).strip()
             
             if (obs, peca) in mapa_plan_obs: return mapa_plan_obs[(obs, peca)]
             if (tat, peca) in mapa_plan_tat: return mapa_plan_tat[(tat, peca)]
-            return mapa_plan_peca.get(peca, 0.0)
+            return 0.0
 
         df_cruz_obs["Qtd_Fabr"] = df_cruz_obs.apply(reconciliar_fabricado, axis=1)
         df_cruz_obs["Qtd_OP"] = df_cruz_obs.apply(reconciliar_op, axis=1)
@@ -721,7 +709,7 @@ if sel_obs_fabrica:
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns:
         df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_fabrica)]
 
-# 2. Vínculo Automático de Compras e SC caso o filtro 2 esteja vazio
+# 2. Vínculo Automático de Compras e SC
 if sel_obs_compras:
     if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns:
         df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_compras)]
@@ -869,7 +857,7 @@ with tab_mobile:
         else:
             st.success("🎉 Nenhuma peça pendente de fabricação interna!")
 
-# 2. BALANÇO COMPLETO METÁLICOS (ESTRUTURA COMPLETA E CORRIGIDA)
+# 2. BALANÇO COMPLETO METÁLICOS (ORDEM EXATA COM TODAS AS COLUNAS)
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -883,7 +871,6 @@ with tab_metalicos:
             "Doc_Romaneio", "Data_Envio", "Fornecedor_Tratamento", "NF_Retorno", "Data_Retorno", "Status"
         ]
         
-        # Garante que todas as colunas existem
         for col_chk in colunas_balanco_ordem:
             if col_chk not in df_trabalho.columns:
                 df_trabalho[col_chk] = 0.0 if "Qtd" in col_chk or "Saldo" in col_chk or "Falta" in col_chk or "Env" in col_chk or "Ret" in col_chk else "-"
