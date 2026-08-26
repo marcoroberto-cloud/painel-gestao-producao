@@ -14,7 +14,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS responsiva e moderna
 st.markdown("""
 <style>
     * {
@@ -107,12 +106,6 @@ def normalizar_texto(t):
     s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', '').replace('\n', ' ')
     return re.sub(r'\s+', ' ', s).strip().upper()
 
-def extrair_tat_base(t):
-    t_clean = normalizar_texto(t)
-    m = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
-    if m: return m.group(1).strip()
-    return t_clean.split('-')[0].strip()
-
 def limpar_cod(c):
     if pd.isna(c) or c is None: return ""
     return str(c).replace('\xa0', ' ').replace('\u00a0', ' ').strip().upper()
@@ -198,7 +191,6 @@ def obter_mtimes():
         os.path.getmtime(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else 0,
     )
 
-# --- PROCESSAMENTO INDEPENDENTE DAS BASES ---
 @st.cache_data(show_spinner=False)
 def processar_todas_as_bases(mtimes):
     df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
@@ -206,7 +198,10 @@ def processar_todas_as_bases(mtimes):
     df_comp_raw = pd.read_parquet(caminho_comp_pqt) if os.path.exists(caminho_comp_pqt) else pd.DataFrame()
     df_sc_raw = pd.read_parquet(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else pd.DataFrame()
 
-    # 1. OP (Observação)
+    # Dicionário mestre para catalogar a descrição de cada código de peça
+    catalogo_descricoes = {}
+
+    # 1. OP
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
         col_obs_op = df_op_raw.columns[11] if len(df_op_raw.columns) >= 12 else buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
@@ -228,6 +223,12 @@ def processar_todas_as_bases(mtimes):
         df_op["MES"] = df_op["MES_ANO"].str.extract(r'/(\d{2})')[0]
         df_op["DT_FABR"] = df_op[col_dt_fim].apply(formatar_data_br) if col_dt_fim else "-"
 
+        # Alimenta o catálogo
+        for _, r in df_op[["COD_PECA", "DESC_PECA"]].dropna().iterrows():
+            c, d = str(r["COD_PECA"]).strip(), str(r["DESC_PECA"]).strip()
+            if c and d and d != "-":
+                catalogo_descricoes[c] = d
+
     # 2. Romaneio
     df_rom = pd.DataFrame()
     if not df_rom_raw.empty:
@@ -236,6 +237,7 @@ def processar_todas_as_bases(mtimes):
             col_obs_rom = df_rom_raw.columns[15]
             
         col_prod_rom = buscar_col_flex(df_rom_raw, ["PRODUTO", "COD. PRODUTO", "COD PROD"], excluir_padroes=["PINTURA", "DESC", "TRATAMENTO"])
+        col_desc_rom = buscar_col_flex(df_rom_raw, ["DESCRIÇÃO", "DESCRICAO", "DESC. PROD", "DESC"])
         col_qtd_rom = buscar_col_flex(df_rom_raw, ["QTD", "QTDE", "QUANTIDADE"], excluir_padroes=["RET", "SALDO"])
         col_ret_rom = buscar_col_flex(df_rom_raw, ["QT RET", "QT_RET", "RETORNADO", "QTD RET", "QT"])
         
@@ -254,6 +256,7 @@ def processar_todas_as_bases(mtimes):
         df_rom = df_rom_raw.copy()
         df_rom["OBS_NORM"] = df_rom[col_obs_rom].apply(normalizar_texto) if col_obs_rom else ""
         df_rom["COD_PECA"] = df_rom[col_prod_rom].apply(limpar_cod) if col_prod_rom else ""
+        df_rom["DESC_PECA"] = df_rom[col_desc_rom].fillna("-").astype(str) if col_desc_rom else "-"
         df_rom["QTD_ENV"] = df_rom[col_qtd_rom].apply(converter_num) if col_qtd_rom else 0.0
         df_rom["QTD_RET"] = df_rom[col_ret_rom].apply(converter_num) if col_ret_rom else 0.0
         df_rom["SALDO_RUA"] = df_rom[col_saldo_rom].apply(converter_num) if col_saldo_rom else 0.0
@@ -263,7 +266,13 @@ def processar_todas_as_bases(mtimes):
         df_rom["DATA_RETORNO"] = df_rom[col_dt_ret_rom].apply(formatar_data_br) if col_dt_ret_rom else "-"
         df_rom["FORNECEDOR_TRAT"] = df_rom[col_forn_rom].apply(padronizar_fornecedor_romaneio) if col_forn_rom else "-"
 
-    # 3. Compras (Coluna L = Índice 11)
+        if col_desc_rom:
+            for _, r in df_rom[["COD_PECA", "DESC_PECA"]].dropna().iterrows():
+                c, d = str(r["COD_PECA"]).strip(), str(r["DESC_PECA"]).strip()
+                if c and d and d != "-" and c not in catalogo_descricoes:
+                    catalogo_descricoes[c] = d
+
+    # 3. Compras
     df_comp = pd.DataFrame()
     if not df_comp_raw.empty:
         col_obs_comp = df_comp_raw.columns[11] if len(df_comp_raw.columns) >= 12 else buscar_col_flex(df_comp_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
@@ -298,7 +307,12 @@ def processar_todas_as_bases(mtimes):
             else: return "⏳ Aguardando Fornecedor"
         df_comp["Status_Compra"] = df_comp.apply(calc_status_compra, axis=1)
 
-    # 4. SC (Coluna I = Índice 8)
+        for _, r in df_comp[["COD_PECA", "Descricao"]].dropna().iterrows():
+            c, d = str(r["COD_PECA"]).strip(), str(r["Descricao"]).strip()
+            if c and d and d != "-" and c not in catalogo_descricoes:
+                catalogo_descricoes[c] = d
+
+    # 4. SC
     df_sc = pd.DataFrame()
     if not df_sc_raw.empty:
         col_filial_sc = buscar_col_flex(df_sc_raw, ["FILIAL"])
@@ -330,7 +344,12 @@ def processar_todas_as_bases(mtimes):
         df_sc["Classe_Valor"] = df_sc[col_classe_sc].fillna("-").astype(str) if col_classe_sc else "-"
         df_sc["Pedido"] = df_sc[col_ped_sc].fillna("-").astype(str) if col_ped_sc else "-"
 
-    # 5. Cruzamento Fábrica x Romaneio
+        for _, r in df_sc[["COD_PECA", "Descricao"]].dropna().iterrows():
+            c, d = str(r["COD_PECA"]).strip(), str(r["Descricao"]).strip()
+            if c and d and d != "-" and c not in catalogo_descricoes:
+                catalogo_descricoes[c] = d
+
+    # 5. Cruzamento Fábrica x Romaneio com Auto-Preenchimento Inteligente de Descrições
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
@@ -343,6 +362,7 @@ def processar_todas_as_bases(mtimes):
     ) if not df_op.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao", "Qtd_OP", "Qtd_Fabr", "Data_Fabricacao"])
 
     rom_obs = df_rom.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
+        Descricao_Rom=("DESC_PECA", "first") if "DESC_PECA" in df_rom.columns else ("COD_PECA", lambda x: "-"),
         Env_Pintura=("QTD_ENV", "sum"),
         Ret_Pintura=("QTD_RET", "sum"),
         Saldo_Rua=("SALDO_RUA", "sum"),
@@ -351,12 +371,27 @@ def processar_todas_as_bases(mtimes):
         NF_Retorno=("NF_RETORNO", format_unique_join),
         Data_Retorno=("DATA_RETORNO", format_unique_join),
         Fornecedor_Tratamento=("FORNECEDOR_TRAT", format_unique_join)
-    ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
+    ) if not df_rom.empty else pd.DataFrame(columns=["OBS_NORM", "COD_PECA", "Descricao_Rom", "Env_Pintura", "Ret_Pintura", "Saldo_Rua", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"])
 
     df_cruz_obs = pd.merge(op_obs, rom_obs, on=["OBS_NORM", "COD_PECA"], how="outer")
 
     if not df_cruz_obs.empty:
-        for col_str in ["Descricao", "Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
+        # Preenchimento prioritário da Descrição
+        if "Descricao" not in df_cruz_obs.columns: df_cruz_obs["Descricao"] = "-"
+        if "Descricao_Rom" in df_cruz_obs.columns:
+            df_cruz_obs["Descricao"] = df_cruz_obs["Descricao"].replace(["-", "", np.nan], df_cruz_obs["Descricao_Rom"])
+            df_cruz_obs.drop(columns=["Descricao_Rom"], inplace=True)
+            
+        # Puxa do catálogo mestre global caso a linha continue sem descrição
+        def resgatar_desc(r):
+            d = str(r["Descricao"]).strip()
+            if d and d not in ["-", "NAN", "NONE", ""]:
+                return d
+            return catalogo_descricoes.get(str(r["COD_PECA"]).strip(), "-")
+            
+        df_cruz_obs["Descricao"] = df_cruz_obs.apply(resgatar_desc, axis=1)
+
+        for col_str in ["Data_Fabricacao", "Doc_Romaneio", "Data_Envio", "NF_Retorno", "Data_Retorno", "Fornecedor_Tratamento"]:
             df_cruz_obs[col_str] = df_cruz_obs[col_str].fillna("-").astype(str)
         for col_num in ["Qtd_OP", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", "Saldo_Rua"]:
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
@@ -470,16 +505,14 @@ if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empt
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- DOIS FILTROS DEDICADOS POR OBSERVAÇÃO ---
+# --- FILTROS DE OBSERVAÇÃO ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
-# 1. Lista de Observações de Fábrica & Pintura
 obs_fabrica_set = set()
 if not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns:
     obs_fabrica_set.update(df_cruz_obs["OBS_NORM"].dropna().unique())
 lista_obs_fabrica = sorted([str(p) for p in obs_fabrica_set if str(p).strip() and str(p) not in ["-", "NAN", "NONE"]])
 
-# 2. Lista de Observações de Compras & SC
 obs_compras_set = set()
 if not df_comp.empty and "OBS_NORM" in df_comp.columns:
     obs_compras_set.update(df_comp["OBS_NORM"].dropna().unique())
@@ -510,7 +543,6 @@ df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
 df_sc_trabalho = df_sc.copy() if not df_sc.empty else pd.DataFrame()
 
-# Aplicação da regra: Se filtrou no Filtro 1, filtra Fabrica; se filtrou no Filtro 2, filtra Compras/SC
 if sel_obs_fabrica:
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns:
         df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_fabrica)]
@@ -521,7 +553,6 @@ if sel_obs_compras:
     if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns:
         df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_compras)]
 
-# Identificação dos nomes ativos para os títulos
 tit_fab = ", ".join(sel_obs_fabrica[:1]) + ("..." if len(sel_obs_fabrica) > 1 else "") if sel_obs_fabrica else "Todas as OPs"
 tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "") if sel_obs_compras else "Todas as Compras"
 projeto_ativo_nome = f"Fábrica: [{tit_fab}] | Compras: [{tit_comp}]"
