@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilização CSS: Visual escuro, moderno, responsivo e com suporte a checkboxes fluidas
+# Estilização CSS refinada para visual escuro, tags limpas e responsividade
 st.markdown("""
 <style>
     * {
@@ -37,9 +37,9 @@ st.markdown("""
         top: 0;
         z-index: 999;
         background-color: #0e1117;
-        padding: 6px 10px;
+        padding: 8px 12px;
         border-bottom: 2px solid #30363d;
-        border-radius: 6px;
+        border-radius: 8px;
         margin-bottom: 12px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.6);
     }
@@ -53,6 +53,16 @@ st.markdown("""
     [data-testid="stMetricLabel"] { font-size: 0.72rem !important; line-height: 1.1 !important; }
     [data-testid="stMetricDelta"] { font-size: 0.68rem !important; }
     
+    div[data-baseweb="select"] * { font-size: 0.78rem !important; line-height: 1.25 !important; }
+    div[data-baseweb="tag"] { 
+        background-color: #1f6feb !important; 
+        color: #ffffff !important;
+        border-radius: 4px !important;
+        padding: 2px 8px !important; 
+        margin: 2px !important;
+    }
+    div[data-baseweb="tag"] span { font-size: 0.74rem !important; color: #ffffff !important; }
+    
     .stTabs [data-baseweb="tab-list"] { gap: 4px; overflow-x: auto; }
     .stTabs [data-baseweb="tab"] { height: 36px; font-weight: 600; font-size: 0.78rem; padding: 0 8px; white-space: nowrap; }
     
@@ -61,18 +71,6 @@ st.markdown("""
         border: 1px solid #30363d;
         border-radius: 8px;
         padding: 10px;
-        margin-bottom: 8px;
-    }
-    
-    /* Estilo dos itens de seleção */
-    .checkbox-container-box {
-        max-height: 250px;
-        overflow-y: auto;
-        background-color: #0d1117;
-        border: 1px solid #30363d;
-        border-radius: 6px;
-        padding: 8px 12px;
-        margin-top: 4px;
         margin-bottom: 8px;
     }
     
@@ -194,7 +192,6 @@ def obter_mtimes():
         os.path.getmtime(caminho_sc_pqt) if os.path.exists(caminho_sc_pqt) else 0,
     )
 
-# --- PROCESSAMENTO OTIMIZADO FIXO POR OBSERVAÇÃO ---
 @st.cache_data(show_spinner=False)
 def processar_todas_as_bases(mtimes):
     df_op_raw = pd.read_parquet(caminho_op_pqt) if os.path.exists(caminho_op_pqt) else pd.DataFrame()
@@ -398,7 +395,6 @@ with col_head_up:
             meta_atual["ultima_atualizacao"] = "Nenhum arquivo salvo ainda"
             salvar_meta(meta_atual)
             st.cache_data.clear()
-            st.session_state.obs_selecionadas_set = set()
             st.success("Arquivos resetados com sucesso!")
             st.rerun()
 
@@ -467,7 +463,7 @@ if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empt
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- NOVO SISTEMA DE BUSCA DIRETA COM CHECKBOX FLUIDA ---
+# --- FILTRO DIRETO NA PRÓPRIA CAIXA DE OBSERVAÇÃO ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
 todas_obs = set()
@@ -476,54 +472,17 @@ if not df_comp.empty and "OBS_NORM" in df_comp.columns: todas_obs.update(df_comp
 if not df_sc.empty and "OBS_NORM" in df_sc.columns: todas_obs.update(df_sc["OBS_NORM"].dropna().unique())
 lista_obs = sorted([str(p) for p in todas_obs if str(p).strip() and str(p) != "-"])
 
-if "obs_selecionadas_set" not in st.session_state:
-    st.session_state.obs_selecionadas_set = set()
+col_multisel_obs, col_busca_peca = st.columns([2.5, 1])
 
-col_busca_obs, col_busca_peca = st.columns([2.2, 1])
-
-with col_busca_obs:
-    termo_busca = st.text_input(
-        "🔍 Buscar e Flegar Projeto / Lote (Observação):",
-        placeholder="Digite o código ou nome (Ex: 11761.01G, IVECO, USISOL)..."
-    ).strip().upper()
+with col_multisel_obs:
+    sel_obs_multi = st.multiselect(
+        "📝 Digite e Selecione o(s) Lote(s) / Observação:",
+        options=lista_obs,
+        placeholder="Digite parte do nome ou código (Ex: 11761, IVECO, USISOL)..."
+    )
 
 with col_busca_peca:
-    busca_cod = st.text_input("🔍 Buscar Peça (Código ou Descrição):").strip().upper()
-
-# Se digitou algo na busca, mostra a lista com checkboxes logo abaixo
-opcoes_filtradas = [obs for obs in lista_obs if termo_busca in obs] if termo_busca else []
-
-qtd_sel = len(st.session_state.obs_selecionadas_set)
-expander_titulo = f"📋 Opções encontradas para '{termo_busca}' ({len(opcoes_filtradas)} itens) — [{qtd_sel} selecionado(s)]" if termo_busca else f"📋 Ver/Flegar Lista de Observações [{qtd_sel} selecionado(s)]"
-
-with st.expander(expander_titulo, expanded=bool(termo_busca)):
-    lista_exibir = opcoes_filtradas if termo_busca else lista_obs
-    
-    col_b1, col_b2, _ = st.columns([1, 1, 3])
-    with col_b1:
-        if st.button("✅ Marcar Filtrados"):
-            for item in lista_exibir:
-                st.session_state.obs_selecionadas_set.add(item)
-            st.rerun()
-    with col_b2:
-        if st.button("🧹 Limpar Seleção"):
-            st.session_state.obs_selecionadas_set = set()
-            st.rerun()
-
-    # Container rolavel com os checkboxes
-    st.markdown('<div class="checkbox-container-box">', unsafe_allow_html=True)
-    for obs_item in lista_exibir:
-        checked_atual = obs_item in st.session_state.obs_selecionadas_set
-        marcou = st.checkbox(obs_item, value=checked_atual, key=f"chk_{obs_item}")
-        if marcou and not checked_atual:
-            st.session_state.obs_selecionadas_set.add(obs_item)
-            st.rerun()
-        elif not marcou and checked_atual:
-            st.session_state.obs_selecionadas_set.remove(obs_item)
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-sel_obs_multi = list(st.session_state.obs_selecionadas_set)
+    busca_cod = st.text_input("🔍 Buscar Peça:", placeholder="Código ou descrição...").strip().upper()
 
 df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
@@ -533,7 +492,7 @@ if sel_obs_multi:
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns: df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_multi)]
     if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns: df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_multi)]
     if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns: df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_multi)]
-    projeto_ativo_nome = ", ".join(sel_obs_multi[:3]) + ("..." if len(sel_obs_multi) > 3 else "")
+    projeto_ativo_nome = ", ".join(sel_obs_multi[:2]) + ("..." if len(sel_obs_multi) > 2 else "")
 else:
     projeto_ativo_nome = "Todas as Observações"
 
