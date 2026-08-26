@@ -168,10 +168,15 @@ def normalizar_texto(t):
 
 def extrair_tat_base(t):
     t_clean = normalizar_texto(t)
-    m = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
-    if m: return m.group(1).strip()
-    m2 = re.search(r'(\d{5}\.[\d\.\w]+)', t_clean)
-    if m2: return f"TAT {m2.group(1).strip()}"
+    # Extrai padrão TAT XXXXX.XX ou número puro XXXXX.XX
+    m = re.search(r'(\d{5}\.\d{2}[A-Z0-9]*)', t_clean)
+    if m:
+        # Pega a raiz numérica (ex: 11761.01)
+        raiz = re.sub(r'[A-Z].*$', '', m.group(1).strip())
+        return f"TAT {raiz}" if not raiz.startswith("TAT") else raiz
+    m2 = re.search(r'(TAT\s*[\d\.\w]+)', t_clean)
+    if m2:
+        return m2.group(1).strip()
     return t_clean.split('-')[0].strip()
 
 def limpar_cod(c):
@@ -277,7 +282,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
         col_obs_op = df_op_raw.columns[11] if len(df_op_raw.columns) >= 12 else buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS"])
-        col_tat_op = buscar_col_flex(df_op_raw, ["TAT", "PROJETO", "PROJ", "DESENHO"])
+        col_tat_op = buscar_col_flex(df_op_raw, ["TAT", "PROJETO", "PROJ", "DESENHO", "OBSERVAÇÃO", "OBS"])
         col_prod_op = buscar_col_flex(df_op_raw, ["PRODUTO", "COD PROD", "CODIGO"])
         col_desc_op = buscar_col_flex(df_op_raw, ["DESC. PROD", "DESCRICAO", "DESCRIÇÃO"])
         col_qtd_op = buscar_col_flex(df_op_raw, ["QUANTIDADE", "QUANTI", "QTD PLAN"])
@@ -430,22 +435,33 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if c and d and d not in ["-", "NAN", "NONE", ""] and c not in catalogo_descricoes:
                 catalogo_descricoes[c] = d
 
-    # 5. Cruzamento Inteligente de Fábrica x Romaneio
+    # 5. Cruzamento Inteligente
     def format_unique_join(x):
         vals = [str(v) for v in x if str(v) not in ["-", "", "nan", "None"]]
         return ", ".join(sorted(set(vals))) or "-"
 
-    # Mapas de busca para produção
+    # Dicionários de Produção
+    mapa_prod_obs = {}
+    mapa_plan_obs = {}
     mapa_prod_tat = {}
     mapa_plan_tat = {}
+    mapa_prod_peca = {}
+    mapa_plan_peca = {}
     
     if not df_op.empty:
         for _, r in df_op.iterrows():
-            t_base = str(r["TAT_BASE"]).strip()
-            c_peca = str(r["COD_PECA"]).strip()
-            chave_tat = (t_base, c_peca)
-            mapa_prod_tat[chave_tat] = mapa_prod_tat.get(chave_tat, 0.0) + r["QTD_PROD"]
-            mapa_plan_tat[chave_tat] = mapa_plan_tat.get(chave_tat, 0.0) + r["QTD_PLAN"]
+            obs = str(r["OBS_NORM"]).strip()
+            tat = str(r["TAT_BASE"]).strip()
+            peca = str(r["COD_PECA"]).strip()
+            
+            mapa_prod_obs[(obs, peca)] = mapa_prod_obs.get((obs, peca), 0.0) + r["QTD_PROD"]
+            mapa_plan_obs[(obs, peca)] = mapa_plan_obs.get((obs, peca), 0.0) + r["QTD_PLAN"]
+            
+            mapa_prod_tat[(tat, peca)] = mapa_prod_tat.get((tat, peca), 0.0) + r["QTD_PROD"]
+            mapa_plan_tat[(tat, peca)] = mapa_plan_tat.get((tat, peca), 0.0) + r["QTD_PLAN"]
+
+            mapa_prod_peca[peca] = mapa_prod_peca.get(peca, 0.0) + r["QTD_PROD"]
+            mapa_plan_peca[peca] = mapa_plan_peca.get(peca, 0.0) + r["QTD_PLAN"]
 
     op_obs = df_op.groupby(["OBS_NORM", "COD_PECA"], as_index=False).agg(
         TAT_BASE=("TAT_BASE", "first"),
@@ -496,18 +512,33 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
 
-        # RECONCILIAÇÃO AUTOMÁTICA DE FABRICADO
+        # RECONCILIAÇÃO PRECISA DE FABRICADO E PROGRAMADO (OP)
         def reconciliar_fabricado(r):
             q_fab = r["Qtd_Fabr"]
             if q_fab > 0: return q_fab
-            chave = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
-            return mapa_prod_tat.get(chave, 0.0)
+            
+            obs = str(r["OBS_NORM"]).strip()
+            tat = str(r["TAT_BASE"]).strip()
+            peca = str(r["COD_PECA"]).strip()
+            
+            # 1. Tenta por observação exata
+            if (obs, peca) in mapa_prod_obs: return mapa_prod_obs[(obs, peca)]
+            # 2. Tenta por TAT Base
+            if (tat, peca) in mapa_prod_tat: return mapa_prod_tat[(tat, peca)]
+            # 3. Tenta por código de peça
+            return mapa_prod_peca.get(peca, 0.0)
 
         def reconciliar_op(r):
             q_op = r["Qtd_OP"]
             if q_op > 0: return q_op
-            chave = (str(r["TAT_BASE"]).strip(), str(r["COD_PECA"]).strip())
-            return mapa_plan_tat.get(chave, 0.0)
+            
+            obs = str(r["OBS_NORM"]).strip()
+            tat = str(r["TAT_BASE"]).strip()
+            peca = str(r["COD_PECA"]).strip()
+            
+            if (obs, peca) in mapa_plan_obs: return mapa_plan_obs[(obs, peca)]
+            if (tat, peca) in mapa_plan_tat: return mapa_plan_tat[(tat, peca)]
+            return mapa_plan_peca.get(peca, 0.0)
 
         df_cruz_obs["Qtd_Fabr"] = df_cruz_obs.apply(reconciliar_fabricado, axis=1)
         df_cruz_obs["Qtd_OP"] = df_cruz_obs.apply(reconciliar_op, axis=1)
@@ -690,16 +721,14 @@ if sel_obs_fabrica:
     if not df_trabalho.empty and "OBS_NORM" in df_trabalho.columns:
         df_trabalho = df_trabalho[df_trabalho["OBS_NORM"].isin(sel_obs_fabrica)]
 
-# 2. Regra de Compras e SC: Se o filtro 2 estiver vazio, herda automaticamente do filtro 1!
+# 2. Vínculo Automático de Compras e SC caso o filtro 2 esteja vazio
 if sel_obs_compras:
-    # Seleção manual explícita
     if not df_comp_trabalho.empty and "OBS_NORM" in df_comp_trabalho.columns:
         df_comp_trabalho = df_comp_trabalho[df_comp_trabalho["OBS_NORM"].isin(sel_obs_compras)]
     if not df_sc_trabalho.empty and "OBS_NORM" in df_sc_trabalho.columns:
         df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_compras)]
     tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "")
 elif sel_obs_fabrica:
-    # Herança automática inteligente por Observação ou por TAT Base
     tats_herdados = set([extrair_tat_base(obs) for obs in sel_obs_fabrica if extrair_tat_base(obs)])
     
     if not df_comp_trabalho.empty:
@@ -840,7 +869,7 @@ with tab_mobile:
         else:
             st.success("🎉 Nenhuma peça pendente de fabricação interna!")
 
-# 2. BALANÇO COMPLETO METÁLICOS (SEQUÊNCIA EXATA SOLICITADA)
+# 2. BALANÇO COMPLETO METÁLICOS (ESTRUTURA COMPLETA E CORRIGIDA)
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -849,13 +878,19 @@ with tab_metalicos:
             st.download_button("📥 Exportar Balanço (.xlsx)", data=gerar_excel_tabela(df_trabalho, "Balanco_Metalicos"), file_name="Balanco_Completo_Metalicos.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         
         colunas_balanco_ordem = [
-            "COD_PECA", "Descricao", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", 
+            "OBS_NORM", "COD_PECA", "Descricao", "Qtd_Fabr", "Env_Pintura", "Ret_Pintura", 
             "Saldo_Pendente_Pintura", "Falta_Fabricar", "Qtd_OP", "Aguardando_Envio", 
             "Doc_Romaneio", "Data_Envio", "Fornecedor_Tratamento", "NF_Retorno", "Data_Retorno", "Status"
         ]
         
+        # Garante que todas as colunas existem
+        for col_chk in colunas_balanco_ordem:
+            if col_chk not in df_trabalho.columns:
+                df_trabalho[col_chk] = 0.0 if "Qtd" in col_chk or "Saldo" in col_chk or "Falta" in col_chk or "Env" in col_chk or "Ret" in col_chk else "-"
+
         st.dataframe(
             df_trabalho[colunas_balanco_ordem].rename(columns={
+                "OBS_NORM": "Observação (Lote)",
                 "COD_PECA": "Código da Peça",
                 "Descricao": "Descrição",
                 "Qtd_Fabr": "Já Fabricado",
