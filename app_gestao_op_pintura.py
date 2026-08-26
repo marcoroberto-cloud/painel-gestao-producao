@@ -67,7 +67,6 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 6px; overflow-x: auto; }
     .stTabs [data-baseweb="tab"] { height: 38px; font-weight: 600; font-size: 0.80rem; padding: 0 10px; white-space: nowrap; border-radius: 6px; }
     
-    /* Novos cards de alto contraste e layout limpo */
     .card-mobile-clean {
         background-color: #1c2128;
         border: 1px solid #30363d;
@@ -484,7 +483,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
             if col_num not in df_cruz_obs.columns: df_cruz_obs[col_num] = 0.0
             df_cruz_obs[col_num] = df_cruz_obs[col_num].fillna(0.0).astype(float)
 
-        # Regra de ouro da fábrica: Se o Romaneio já enviou/retornou a peça daquele lote, o fabricado mínimo daquele lote é o enviado
+        # Regra da fábrica: O fabricado mínimo do lote é o que já foi despachado/retornado
         df_cruz_obs["Qtd_Fabr"] = np.maximum(df_cruz_obs["Qtd_Fabr"], df_cruz_obs["Env_Pintura"])
         df_cruz_obs["Qtd_OP"] = np.maximum(df_cruz_obs["Qtd_OP"], df_cruz_obs["Qtd_Fabr"])
 
@@ -674,7 +673,6 @@ if sel_obs_compras:
         df_sc_trabalho = df_sc_trabalho[df_sc_trabalho["OBS_NORM"].isin(sel_obs_compras)]
     tit_comp = ", ".join(sel_obs_compras[:1]) + ("..." if len(sel_obs_compras) > 1 else "")
 elif sel_obs_fabrica:
-    # Identifica o padrão específico do lote (ex: LOTE 13+67, LOTE 19, etc.)
     termos_estritos = []
     for obs in sel_obs_fabrica:
         m_lote = re.search(r'(LOTE\s*[\d\+\w]+)', obs)
@@ -747,23 +745,152 @@ c6.metric("6. SC em Aberto", f"{tot_sc_aberto:,} pçs", f"{qtd_itens_sc} solicit
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- ABAS DETALHADAS ---
-tab_mobile, tab_metalicos, tab_mensal, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_sc, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
-    "📱 Resumo Executivo (Celular)", "🏗️ Balanço Metálico", "📈 Produção Mensal", "✅ Peças Retornadas", "🚨 Falta Retorno",
+# --- ABAS DETALHADAS COM PRODUÇÃO MENSAL COMO PRIMEIRA OPÇÃO ---
+tab_mensal, tab_mobile, tab_metalicos, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_sc, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
+    "📈 Produção Mensal & Capacidade", "📱 Resumo Executivo (Celular)", "🏗️ Balanço Metálico", "✅ Peças Retornadas", "🚨 Falta Retorno",
     "🚚 Aguardando Envio", "⚙️ Falta Fabricar", "📦 Compras Externas",
     "📋 SC em Aberto", "📑 Base OP", "🎨 Base Romaneio", "🛒 Base Compras"
 ])
 
 # ==============================================================================
-# 1. ABA RESUMO EXECUTIVO (CELULAR / MOBILE FIRST ULTRA CLEAN & COMPLETO)
+# 1. ABA PRODUÇÃO MENSAL & CAPACIDADE DA FÁBRICA (NOVO DESIGN AVANÇADO)
+# ==============================================================================
+with tab_mensal:
+    st.markdown("### 📈 Painel Executivo de Produção & Capacidade Fabril")
+    
+    if not df_op.empty:
+        # Filtros de Ano e Mês
+        col_f_ano, col_f_mes, col_f_status_prod = st.columns([1, 1, 1.5])
+        anos_disp = sorted([a for a in df_op["ANO"].dropna().unique() if len(str(a)) == 4])
+        with col_f_ano: 
+            sel_anos = st.multiselect("🗓️ Filtrar Ano(s):", anos_disp, default=anos_disp)
+            
+        df_op_filtrada_data = df_op.copy()
+        if sel_anos: 
+            df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["ANO"].isin(sel_anos)]
+            
+        meses_disp = sorted([m for m in df_op_filtrada_data["MES"].dropna().unique() if str(m).isdigit()])
+        with col_f_mes: 
+            sel_meses = st.multiselect("📅 Filtrar Mês(es):", meses_disp, default=meses_disp)
+        if sel_meses: 
+            df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["MES"].isin(sel_meses)]
+
+        # Agregação por Mês/Ano com cruzamento de Romaneio
+        df_mes_prod = df_op_filtrada_data.groupby("MES_ANO", as_index=False).agg(
+            Qtd_Planejada=("QTD_PLAN", "sum"), 
+            Qtd_Produzida=("QTD_PROD", "sum"), 
+            Total_OPs=("COD_PECA", "count"),
+            Projetos_Distintos=("OBS_NORM", "nunique")
+        ).sort_values("MES_ANO")
+        
+        df_mes_prod = df_mes_prod[df_mes_prod["MES_ANO"].str.contains(r'^\d{4}', regex=True, na=False)]
+
+        # Cruzamento com Romaneio para saber Enviado e Retornado por período
+        if not df_rom.empty and "MES_ANO" in df_rom.columns:
+            df_rom_mes = df_rom.groupby("MES_ANO", as_index=False).agg(
+                Qtd_Enviada_Pintura=("QTD_ENV", "sum"),
+                Qtd_Retornada_Pronta=("QTD_RET", "sum")
+            )
+            df_mes_prod = pd.merge(df_mes_prod, df_rom_mes, on="MES_ANO", how="left").fillna(0.0)
+        else:
+            df_mes_prod["Qtd_Enviada_Pintura"] = df_mes_prod["Qtd_Produzida"]
+            df_mes_prod["Qtd_Retornada_Pronta"] = df_mes_prod["Qtd_Produzida"]
+
+        # 1.1 Cards com Indicadores Chave de Desempenho (KPIs do Período)
+        tot_plan_periodo = int(df_mes_prod["Qtd_Planejada"].sum())
+        tot_prod_periodo = int(df_mes_prod["Qtd_Produzida"].sum())
+        tot_env_periodo = int(df_mes_prod["Qtd_Enviada_Pintura"].sum())
+        tot_ret_periodo = int(df_mes_prod["Qtd_Retornada_Pronta"].sum())
+        eficiencia_fabril = (tot_prod_periodo / tot_plan_periodo * 100) if tot_plan_periodo > 0 else 0.0
+
+        kp1, kp2, kp3, kp4 = st.columns(4)
+        kp1.markdown(f"""
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">📋 PROGRAMADO NO PERÍODO</span><br>
+            <b style="font-size:1.2rem; color:#f0f6fc;">{tot_plan_periodo:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:#8b949e;">Total em Ordens de Produção</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        kp2.markdown(f"""
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">⚙️ FABRICADO INTERNAMENTE</span><br>
+            <b style="font-size:1.2rem; color:#58a6ff;">{tot_prod_periodo:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:{'#3fb950' if eficiencia_fabril >= 90 else '#d29922'}; font-weight:600;">
+                Eficiência: {eficiencia_fabril:.1f}% da meta
+            </span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        kp3.markdown(f"""
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">🚚 ENVIADO P/ TRATAMENTO</span><br>
+            <b style="font-size:1.2rem; color:#d29922;">{tot_env_periodo:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:#8b949e;">Despachado para pintura externa</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        kp4.markdown(f"""
+        <div class="card-mobile-clean">
+            <span style="font-size:0.75rem; color:#8b949e; font-weight:600;">✅ RETORNADO 100% PRONTO</span><br>
+            <b style="font-size:1.2rem; color:#3fb950;">{tot_ret_periodo:,} pçs</b><br>
+            <span style="font-size:0.75rem; color:#8b949e;">Disponível para montagem final</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 1.2 Projetos em Aberto (O que falta fabricar internamente na fábrica)
+        st.markdown("#### ⚠️ Projetos com Saldo Pendente de Fabricação Interna:")
+        df_projetos_gargalo = df_op_filtrada_data.groupby("OBS_NORM", as_index=False).agg(
+            Planejado=("QTD_PLAN", "sum"),
+            Fabricado=("QTD_PROD", "sum"),
+            Qtd_Itens=("COD_PECA", "count")
+        )
+        df_projetos_gargalo["Falta_Produzir"] = (df_projetos_gargalo["Planejado"] - df_projetos_gargalo["Fabricado"]).clip(lower=0.0)
+        df_pendentes_fab = df_projetos_gargalo[df_projetos_gargalo["Falta_Produzir"] > 0].sort_values("Falta_Produzir", ascending=False)
+
+        if not df_pendentes_fab.empty:
+            with st.expander(f"🚨 **{len(df_pendentes_fab)} Projetos/Lotes aguardando conclusão na fábrica ({int(df_pendentes_fab['Falta_Produzir'].sum()):,} peças pendentes)**", expanded=True):
+                for _, r_gar in df_pendentes_fab.iterrows():
+                    pct_g = (r_gar['Fabricado'] / r_gar['Planejado'] * 100) if r_gar['Planejado'] > 0 else 0.0
+                    st.markdown(f"""
+                    • **`{r_gar['OBS_NORM']}`**: Falta produzir **{int(r_gar['Falta_Produzir']):,} pçs** | Prog: {int(r_gar['Planejado']):,} | Fab: {int(r_gar['Fabricado']):,} ({pct_g:.1f}% concluído)
+                    """)
+        else:
+            st.success("🎉 Todos os projetos do período selecionado foram 100% fabricados internamente!")
+
+        st.markdown("---")
+
+        # 1.3 Gráfico Comparativo 4 em 1 e Tabela Detalhada
+        col_g_mes, col_t_mes = st.columns([1.6, 1.4])
+        with col_g_mes:
+            st.markdown("##### 📊 Comparativo Mensal de Volume Fabril (Peças)")
+            chart_data = df_mes_prod.set_index("MES_ANO")[["Qtd_Produzida", "Qtd_Planejada", "Qtd_Retornada_Pronta"]]
+            st.bar_chart(chart_data, color=["#1E88E5", "#90CAF9", "#2EA043"])
+            
+        with col_t_mes:
+            st.markdown("##### 📑 Tabela do Período Selecionado")
+            df_mes_view = df_mes_prod.rename(columns={
+                "MES_ANO": "Mês/Ano", 
+                "Qtd_Planejada": "Planejado OP", 
+                "Qtd_Produzida": "Fabricado", 
+                "Qtd_Enviada_Pintura": "Enviado Pintura",
+                "Qtd_Retornada_Pronta": "Retornado Pronto",
+                "Total_OPs": "Itens/OPs",
+                "Projetos_Distintos": "Qtd Lotes"
+            })
+            st.dataframe(df_mes_view, use_container_width=True, hide_index=True, height=350)
+            st.download_button("📥 Exportar Relatório Mensal (.xlsx)", data=gerar_excel_tabela(df_mes_view, "Producao_Mensal_Consolidada"), file_name="Producao_Mensal_Consolidada.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else: 
+        st.warning("Base de OP não carregada.")
+
+# ==============================================================================
+# 2. ABA RESUMO EXECUTIVO (CELULAR / MOBILE FIRST)
 # ==============================================================================
 with tab_mobile:
     pct_pronto = (tot_ret / tot_op * 100) if tot_op > 0 else (100.0 if tot_op == 0 and tot_ret > 0 else 0.0)
     
-    # 1.1 Status Global do Projeto
     st.markdown(f"### 📱 Diagnóstico Rápido: `{projeto_ativo_nome}`")
     
-    # Determina o Status Geral
     if saldo_rua == 0 and falta_fab == 0 and falta_env == 0 and saldo_compra == 0 and tot_sc_aberto == 0 and tot_ret > 0:
         status_geral_badge = '<span class="badge-status badge-ok">✅ PROJETO 100% PRONTO & LIBERADO PARA MONTAGEM</span>'
     elif saldo_rua > 0:
@@ -777,7 +904,6 @@ with tab_mobile:
     st.progress(min(max(pct_pronto / 100.0, 0.0), 1.0))
     st.caption(f"**Prontidão Metálica Total:** `{pct_pronto:.1f}%` ({tot_ret:,} de {tot_op:,} peças prontas)")
 
-    # 1.2 Cartões 2x2 Clean de Resumo
     m1, m2 = st.columns(2)
     with m1:
         st.markdown(f"""
@@ -823,10 +949,8 @@ with tab_mobile:
 
     st.markdown("---")
 
-    # 1.3 Detalhamento por Tipologia / Conjunto do Carro
     st.markdown("#### 🚗 Peças por Tipo / Conjunto do Veículo:")
     if not df_trabalho.empty:
-        # Extrai a tipologia básica pelo início da descrição ou código
         def classificar_tipo(desc):
             d = str(desc).upper()
             if "DIVISORIA" in d: return "🚪 Divisórias de Cela"
@@ -866,7 +990,6 @@ with tab_mobile:
 
     st.markdown("---")
 
-    # 1.4 Localização Exata das Peças na Rua (Pintura / Fornecedores)
     st.markdown("#### 📍 Onde estão as peças na rua agora?")
     if not df_trabalho.empty:
         df_na_rua = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0]
@@ -881,7 +1004,6 @@ with tab_mobile:
     
     st.markdown("---")
 
-    # 1.5 Ordens de Compras e Solicitações Externas do Projeto
     st.markdown("#### 📦 Compras e Itens Externos do Projeto:")
     if not df_comp_trabalho.empty or not df_sc_trabalho.empty:
         if saldo_compra == 0 and tot_sc_aberto == 0:
@@ -901,7 +1023,9 @@ with tab_mobile:
     else:
         st.info("Nenhuma ordem de compra cadastrada para este lote.")
 
-# 2. BALANÇO COMPLETO METÁLICOS (ORDEM EXATA COM TODAS AS COLUNAS)
+# ==============================================================================
+# 3. ABA BALANÇO COMPLETO METÁLICOS
+# ==============================================================================
 with tab_metalicos:
     if not df_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -944,33 +1068,9 @@ with tab_metalicos:
         )
     else: st.info("Nenhum dado metálico encontrado para o filtro selecionado.")
 
-# 3. PRODUÇÃO MENSAL
-with tab_mensal:
-    st.subheader("🗓️ Produção da Fábrica por Período")
-    if not df_op.empty:
-        col_f_ano, col_f_mes = st.columns(2)
-        anos_disp = sorted([a for a in df_op["ANO"].dropna().unique() if len(str(a)) == 4])
-        with col_f_ano: sel_anos = st.multiselect("🗓️ Flegar Ano(s):", anos_disp, default=anos_disp)
-        df_op_filtrada_data = df_op.copy()
-        if sel_anos: df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["ANO"].isin(sel_anos)]
-        meses_disp = sorted([m for m in df_op_filtrada_data["MES"].dropna().unique() if str(m).isdigit()])
-        with col_f_mes: sel_meses = st.multiselect("📅 Flegar Mês(es):", meses_disp, default=meses_disp)
-        if sel_meses: df_op_filtrada_data = df_op_filtrada_data[df_op_filtrada_data["MES"].isin(sel_meses)]
-        df_mes_prod = df_op_filtrada_data.groupby("MES_ANO", as_index=False).agg(Qtd_Planejada=("QTD_PLAN", "sum"), Qtd_Produzida=("QTD_PROD", "sum"), Total_OPs=("OP" if "OP" in df_op.columns else "COD_PECA", "nunique")).sort_values("MES_ANO")
-        df_mes_prod = df_mes_prod[df_mes_prod["MES_ANO"].str.contains(r'^\d{4}', regex=True, na=False)]
-        if not df_mes_prod.empty:
-            col_g_mes, col_t_mes = st.columns([2, 1])
-            with col_g_mes:
-                st.markdown("**Volume Fabricado por Mês (Peças)**")
-                st.bar_chart(df_mes_prod.set_index("MES_ANO")[["Qtd_Produzida", "Qtd_Planejada"]], color=["#1E88E5", "#90CAF9"])
-            with col_t_mes:
-                st.markdown("**Tabela do Período Selecionado**")
-                df_mes_view = df_mes_prod.rename(columns={"MES_ANO": "Mês/Ano", "Qtd_Planejada": "Planejado", "Qtd_Produzida": "Fabricado", "Total_OPs": "Qtd OPs"})
-                st.dataframe(df_mes_view, use_container_width=True, hide_index=True, height=500)
-                st.download_button("📥 Exportar Produção Mensal (.xlsx)", data=gerar_excel_tabela(df_mes_view, "Producao_Mensal"), file_name="Producao_Mensal.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    else: st.warning("Base de OP não carregada.")
-
-# 4. PEÇAS RETORNADAS (FORNECEDOR NA FRENTE DA DESCRIÇÃO)
+# ==============================================================================
+# 4. ABA PEÇAS RETORNADAS
+# ==============================================================================
 with tab_retornadas:
     if not df_trabalho.empty:
         df_p2 = df_trabalho[df_trabalho["Ret_Pintura"] > 0].copy()
@@ -1011,7 +1111,9 @@ with tab_retornadas:
             )
         else: st.info("ℹ️ Nenhuma peça com retorno registrado para este filtro.")
 
-# 5. FALTA RETORNO (FORNECEDOR NA FRENTE DA DESCRIÇÃO)
+# ==============================================================================
+# 5. ABA FALTA RETORNO
+# ==============================================================================
 with tab_pend_trat:
     if not df_trabalho.empty:
         df_p1 = df_trabalho[df_trabalho["Saldo_Pendente_Pintura"] > 0].copy()
@@ -1051,7 +1153,9 @@ with tab_pend_trat:
             )
         else: st.success("🎉 Nenhuma peça pendente de retorno de tratamento para este filtro!")
 
-# 6. FABRICADAS AGUARDANDO ENVIO
+# ==============================================================================
+# 6. ABA AGUARDANDO ENVIO
+# ==============================================================================
 with tab_aguard_envio:
     if not df_trabalho.empty:
         df_p3 = df_trabalho[df_trabalho["Aguardando_Envio"] > 0].copy()
@@ -1069,7 +1173,9 @@ with tab_aguard_envio:
             )
         else: st.success("🎉 Todas as peças fabricadas já foram enviadas para tratamento!")
 
-# 7. FALTA FABRICAR
+# ==============================================================================
+# 7. ABA FALTA FABRICAR
+# ==============================================================================
 with tab_falta_fab:
     if not df_trabalho.empty:
         df_p4 = df_trabalho[df_trabalho["Falta_Fabricar"] > 0].copy()
@@ -1087,7 +1193,9 @@ with tab_falta_fab:
             )
         else: st.success("🎉 100% da programação de fábrica já foi produzida internamente!")
 
-# 8. COMPRAS
+# ==============================================================================
+# 8. ABA COMPRAS EXTERNAS
+# ==============================================================================
 with tab_compras:
     if not df_comp_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -1113,7 +1221,9 @@ with tab_compras:
         )
     else: st.info("Nenhuma planilha de Compras carregada ou nenhum item encontrado para o filtro selecionado.")
 
-# 9. SC EM ABERTO
+# ==============================================================================
+# 9. ABA SC EM ABERTO
+# ==============================================================================
 with tab_sc:
     if not df_sc_trabalho.empty:
         c_tit, c_btn = st.columns([4, 1])
@@ -1149,7 +1259,9 @@ with tab_sc:
     else:
         st.info("Nenhuma Solicitação de Compras em aberto carregada ou nenhum item encontrado para o filtro selecionado.")
 
+# ==============================================================================
 # 10. BASE OP COMPLETA
+# ==============================================================================
 with tab_base_op:
     st.subheader("📑 Base Completa: OP Fabricação")
     if not df_op_raw.empty:
@@ -1157,7 +1269,9 @@ with tab_base_op:
         if busca_cod: st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
         else: st.dataframe(df_op_raw, use_container_width=True, hide_index=True, height=650)
 
+# ==============================================================================
 # 11. BASE ROMANEIO COMPLETA
+# ==============================================================================
 with tab_base_rom:
     st.subheader("🎨 Base Completa: Romaneio de Pintura")
     if not df_rom_raw.empty:
@@ -1165,7 +1279,9 @@ with tab_base_rom:
         if busca_cod: st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
         else: st.dataframe(df_rom_raw, use_container_width=True, hide_index=True, height=650)
 
+# ==============================================================================
 # 12. BASE COMPRAS COMPLETA
+# ==============================================================================
 with tab_base_comp:
     st.subheader("🛒 Base Completa: Compras e Alinhamento Externo")
     if not df_comp_raw.empty:
