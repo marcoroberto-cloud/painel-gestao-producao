@@ -175,14 +175,20 @@ def restaurar_backup(pasta_id):
                 meta["ultima_atualizacao"] = f"Restaurado de: {info.get('data_formatada')}"
                 salvar_meta(meta)
 
+# Sanitização Universal de Texto (Elimina caracteres invisíveis e lixo de planilha)
 def normalizar_texto(t):
-    if pd.isna(t) or t is None: return ""
-    s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', '').replace('\n', ' ')
+    if pd.isna(t) or t is None: 
+        return ""
+    s = str(t).replace('\xa0', ' ').replace('\u00a0', ' ').replace('\r', ' ').replace('\n', ' ')
+    s = re.sub(r'[\x00-\x1f\x7f-\x9f\ufeff]', '', s)
     return re.sub(r'\s+', ' ', s).strip().upper()
 
 def limpar_cod(c):
-    if pd.isna(c) or c is None: return ""
-    return str(c).replace('\xa0', ' ').replace('\u00a0', ' ').strip().upper()
+    if pd.isna(c) or c is None: 
+        return ""
+    s = str(c).replace('\xa0', ' ').replace('\u00a0', ' ')
+    s = re.sub(r'[\x00-\x1f\x7f-\x9f\ufeff]', '', s)
+    return s.strip().upper()
 
 def converter_num(v):
     if pd.isna(v) or v is None: return 0.0
