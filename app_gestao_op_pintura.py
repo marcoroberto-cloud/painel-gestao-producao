@@ -54,6 +54,19 @@ st.markdown("""
     [data-testid="stMetricLabel"] { font-size: 0.75rem !important; line-height: 1.1 !important; color: #c9d1d9 !important; }
     [data-testid="stMetricDelta"] { font-size: 0.70rem !important; }
     
+    div[data-baseweb="select"] * { font-size: 0.78rem !important; line-height: 1.25 !important; }
+    div[data-baseweb="tag"] { 
+        background-color: #1f6feb !important; 
+        color: #ffffff !important;
+        border-radius: 4px !important;
+        padding: 2px 8px !important; 
+        margin: 1px !important;
+    }
+    div[data-baseweb="tag"] span { font-size: 0.74rem !important; color: #ffffff !important; }
+    
+    .stTabs [data-baseweb="tab-list"] { gap: 6px; overflow-x: auto; }
+    .stTabs [data-baseweb="tab"] { height: 38px; font-weight: 600; font-size: 0.80rem; padding: 0 10px; white-space: nowrap; border-radius: 6px; }
+    
     .card-mobile-clean {
         background-color: #1c2128;
         border: 1px solid #30363d;
@@ -75,18 +88,6 @@ st.markdown("""
     .badge-ok { background-color: rgba(46, 160, 67, 0.2); color: #3fb950; border: 1px solid #2ea043; }
     .badge-warn { background-color: rgba(210, 153, 34, 0.2); color: #d29922; border: 1px solid #d29922; }
     .badge-alert { background-color: rgba(248, 81, 73, 0.2); color: #ff7b72; border: 1px solid #f85149; }
-
-    /* Estilo da caixa de seleção personalizada com checkboxes */
-    .checkbox-scroll-box {
-        max-height: 280px;
-        overflow-y: auto;
-        background-color: #0d1117;
-        border: 1px solid #30363d;
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin-top: 6px;
-        margin-bottom: 10px;
-    }
 
     [data-testid="stDataFrame"] {
         width: 100% !important;
@@ -609,10 +610,9 @@ if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empt
     st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
     st.stop()
 
-# --- NOVO SISTEMA DE FILTRO MODAL COM CHECKBOXES CONTÍNUAS ---
+# --- FILTRO DIRETO NA PRÓPRIA CAIXA DE OBSERVAÇÃO ---
 st.markdown('<div class="sticky-top-panel">', unsafe_allow_html=True)
 
-# Coleta todas as observações existentes em todas as bases
 todas_obs_set = set()
 if not df_cruz_obs.empty and "OBS_NORM" in df_cruz_obs.columns:
     todas_obs_set.update(df_cruz_obs["OBS_NORM"].dropna().unique())
@@ -623,55 +623,17 @@ if not df_sc.empty and "OBS_NORM" in df_sc.columns:
 
 lista_todas_obs = sorted([str(p) for p in todas_obs_set if str(p).strip() and str(p) not in ["-", "NAN", "NONE"]])
 
-if "projetos_selecionados_set" not in st.session_state:
-    st.session_state.projetos_selecionados_set = set()
+col_multisel_obs, col_busca_peca = st.columns([2.8, 1.2])
 
-col_f_busca_texto, col_f_busca_peca = st.columns([2.5, 1.0])
+with col_multisel_obs:
+    sel_obs_global = st.multiselect(
+        "📝 Digite e Flegue o(s) Lote(s) / Observação:",
+        options=lista_todas_obs,
+        placeholder="Digite parte do nome ou código (Ex: 11761, COROLLA, RANGER, USISOL)..."
+    )
 
-with col_f_busca_texto:
-    termo_pesquisa_tat = st.text_input(
-        "🔎 Digite para pesquisar o TAT / Projeto (ex: 11761, BMW, COROLLA, RANGER...):",
-        placeholder="Digite para filtrar a lista abaixo..."
-    ).strip().upper()
-
-with col_f_busca_peca:
+with col_busca_peca:
     busca_cod = st.text_input("🔍 Buscar Peça:", placeholder="Código ou descrição...").strip().upper()
-
-# Filtra a lista de opções com base no texto digitado
-opcoes_encontradas = [obs for obs in lista_todas_obs if termo_pesquisa_tat in obs] if termo_pesquisa_tat else lista_todas_obs
-
-total_selecionado = len(st.session_state.projetos_selecionados_set)
-expander_rotulo = f"📋 Ver/Flegar Projetos [{total_selecionado} selecionado(s)] — ({len(opcoes_encontradas)} encontrados)" if termo_pesquisa_tat else f"📋 Ver/Flegar Projetos [{total_selecionado} selecionado(s)]"
-
-# Gaveta suspensa contínua com Checkboxes
-with st.expander(expander_rotulo, expanded=bool(termo_pesquisa_tat)):
-    c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 2])
-    with c_btn1:
-        if st.button("✅ Marcar Filtrados"):
-            for opc in opcoes_encontradas:
-                st.session_state.projetos_selecionados_set.add(opc)
-            st.rerun()
-    with c_btn2:
-        if st.button("🧹 Limpar Seleção"):
-            st.session_state.projetos_selecionados_set = set()
-            st.rerun()
-    with c_btn3:
-        if st.button("🚀 Pronto (Aplicar Filtro)", type="primary"):
-            st.rerun()
-
-    st.markdown('<div class="checkbox-scroll-box">', unsafe_allow_html=True)
-    for item_obs in opcoes_encontradas:
-        esta_marcado = item_obs in st.session_state.projetos_selecionados_set
-        marcou_agora = st.checkbox(item_obs, value=esta_marcado, key=f"chk_tat_{item_obs}")
-        if marcou_agora and not esta_marcado:
-            st.session_state.projetos_selecionados_set.add(item_obs)
-            st.rerun()
-        elif not marcou_agora and esta_marcado:
-            st.session_state.projetos_selecionados_set.remove(item_obs)
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-sel_obs_global = list(st.session_state.projetos_selecionados_set)
 
 df_trabalho = df_cruz_obs.copy() if not df_cruz_obs.empty else pd.DataFrame()
 df_comp_trabalho = df_comp.copy() if not df_comp.empty else pd.DataFrame()
