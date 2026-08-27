@@ -328,7 +328,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
 
     catalogo_descricoes = {}
 
-    # 1. OP (Localização robusta da coluna de Observação)
+    # 1. OP
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
         col_obs_op = buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS", "PROJETO", "LOTE"])
@@ -751,9 +751,9 @@ c6.metric("6. SC em Aberto", f"{tot_sc_aberto:,} pçs", f"{qtd_itens_sc} solicit
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- ABAS DETALHADAS ---
-tab_mensal, tab_mobile, tab_metalicos, tab_fabricadas, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_sc, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
-    "📈 Produção Mensal & Capacidade", "📱 Resumo Executivo (Celular)", "🏗️ Balanço Metálico", "🏭 Peças Fabricadas", "✅ Peças Retornadas", "🚨 Falta Retorno",
+# --- ABAS DETALHADAS COM NOVA ABA 'METÁLICOS TOTAL' ---
+tab_mensal, tab_mobile, tab_metalicos, tab_metalicos_total, tab_fabricadas, tab_retornadas, tab_pend_trat, tab_aguard_envio, tab_falta_fab, tab_compras, tab_sc, tab_base_op, tab_base_rom, tab_base_comp = st.tabs([
+    "📈 Produção Mensal & Capacidade", "📱 Resumo Executivo (Celular)", "🏗️ Balanço Metálico", "📊 Metálicos Total (Geral)", "🏭 Peças Fabricadas", "✅ Peças Retornadas", "🚨 Falta Retorno",
     "🚚 Aguardando Envio", "⚙️ Falta Fabricar", "📦 Compras Externas",
     "📋 SC em Aberto", "📑 Base OP", "🎨 Base Romaneio", "🛒 Base Compras"
 ])
@@ -1068,7 +1068,97 @@ with tab_metalicos:
     else: st.info("Nenhum dado metálico encontrado para o filtro selecionado.")
 
 # ==============================================================================
-# 4. ABA PEÇAS FABRICADAS (NOVA ABA DEDICADA)
+# 4. ABA METÁLICOS TOTAL (FABRICADOS + COMPRADOS TUDO JUNTO EM UMA ÚNICA VISÃO)
+# ==============================================================================
+with tab_metalicos_total:
+    lista_dfs_total = []
+
+    # 1. Processa Linhas de Fabricação Interna
+    if not df_trabalho.empty:
+        df_fab_tot = df_trabalho.copy()
+        df_fab_tot["Origem_Tipo"] = "🏭 Fabricação Interna"
+        df_fab_tot["Qtd_Total_Demanda"] = df_fab_tot["Qtd_OP"]
+        df_fab_tot["Qtd_Entregue_Pronta"] = df_fab_tot["Ret_Pintura"]
+        df_fab_tot["Saldo_Pendente_Entrega"] = df_fab_tot["Saldo_Pendente_Pintura"]
+        df_fab_tot["Falta_Produzir_Interno"] = df_fab_tot["Falta_Fabricar"]
+        df_fab_tot["Fornecedor_Responsavel"] = df_fab_tot["Fornecedor_Tratamento"]
+        df_fab_tot["Doc_Origem_Envio"] = df_fab_tot["Doc_Romaneio"]
+        df_fab_tot["NF_Retorno_Entrega"] = df_fab_tot["NF_Retorno"]
+        df_fab_tot["Data_Movimento"] = df_fab_tot["Data_Retorno"].where(df_fab_tot["Data_Retorno"] != "-", df_fab_tot["Data_Envio"])
+        lista_dfs_total.append(df_fab_tot)
+
+    # 2. Processa Linhas de Compras Externas
+    if not df_comp_trabalho.empty:
+        df_comp_tot = df_comp_trabalho.copy()
+        df_comp_tot["Origem_Tipo"] = "📦 Compra / Externado"
+        df_comp_tot["Qtd_Total_Demanda"] = df_comp_tot["Qtd_Comprada"]
+        df_comp_tot["Qtd_Entregue_Pronta"] = df_comp_tot["Qtd_Entregue"]
+        df_comp_tot["Saldo_Pendente_Entrega"] = df_comp_tot["Saldo_Falta_Entregar"]
+        df_comp_tot["Falta_Produzir_Interno"] = 0.0
+        df_comp_tot["Fornecedor_Responsavel"] = df_comp_tot["Fornecedor"]
+        df_comp_tot["Doc_Origem_Envio"] = "-"
+        df_comp_tot["NF_Retorno_Entrega"] = df_comp_tot["NF_Entrega"]
+        df_comp_tot["Data_Movimento"] = df_comp_tot["Data_Entrega"].where(df_comp_tot["Data_Entrega"] != "-", df_comp_tot["Data_Fornecedor"])
+        df_comp_tot["Status"] = df_comp_tot["Status_Compra"]
+        lista_dfs_total.append(df_comp_tot)
+
+    if lista_dfs_total:
+        df_unificado_total = pd.concat(lista_dfs_total, ignore_index=True)
+        
+        # Filtro opcional por Origem
+        c_forn_tot, c_origem_tot = st.columns([2, 1])
+        with c_origem_tot:
+            sel_origem = st.multiselect("Filtrar por Origem do Item:", ["🏭 Fabricação Interna", "📦 Compra / Externado"], default=["🏭 Fabricação Interna", "📦 Compra / Externado"])
+        
+        if sel_origem:
+            df_unificado_total = df_unificado_total[df_unificado_total["Origem_Tipo"].isin(sel_origem)]
+
+        colunas_total_ordem = [
+            "Origem_Tipo", "OBS_NORM", "COD_PECA", "Descricao", "Fornecedor_Responsavel",
+            "Qtd_Total_Demanda", "Qtd_Entregue_Pronta", "Saldo_Pendente_Entrega",
+            "Falta_Produzir_Interno", "Doc_Origem_Envio", "NF_Retorno_Entrega", "Data_Movimento", "Status"
+        ]
+
+        for col_chk in colunas_total_ordem:
+            if col_chk not in df_unificado_total.columns:
+                df_unificado_total[col_chk] = 0.0 if "Qtd" in col_chk or "Saldo" in col_chk or "Falta" in col_chk else "-"
+
+        df_view_total = df_unificado_total[colunas_total_ordem].rename(columns={
+            "Origem_Tipo": "Origem do Item",
+            "OBS_NORM": "Observação (Lote)",
+            "COD_PECA": "Código da Peça",
+            "Descricao": "Descrição",
+            "Fornecedor_Responsavel": "Fornecedor / Responsável",
+            "Qtd_Total_Demanda": "Total Programado / Comprado",
+            "Qtd_Entregue_Pronta": "Já Entregue / Pronto",
+            "Saldo_Pendente_Entrega": "Falta Entregar (Saldo)",
+            "Falta_Produzir_Interno": "Falta Fabricar (Fábrica)",
+            "Doc_Origem_Envio": "Romaneio Envio",
+            "NF_Retorno_Entrega": "NF Entrega / Retorno",
+            "Data_Movimento": "Data Entrega / Previsão",
+            "Status": "Status do Item"
+        })
+
+        tot_demanda_geral = int(df_unificado_total["Qtd_Total_Demanda"].sum())
+        tot_pronto_geral = int(df_unificado_total["Qtd_Entregue_Pronta"].sum())
+        tot_falta_geral = int(df_unificado_total["Saldo_Pendente_Entrega"].sum())
+
+        c_tit_tot, c_btns_tot = st.columns([3, 2])
+        with c_tit_tot: 
+            st.subheader(f"📊 Metálicos Total ({len(df_unificado_total)} itens | {tot_pronto_geral:,} de {tot_demanda_geral:,} entregues/prontos)")
+        with c_btns_tot:
+            cb1, cb2 = st.columns(2)
+            with cb1:
+                renderizar_botao_copiar_tabela(df_view_total, "btn_cp_total_unificado")
+            with cb2:
+                st.download_button("📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_view_total, "Metalicos_Total_Geral"), file_name="Metalicos_Total_Unificado.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        st.dataframe(df_view_total, use_container_width=True, hide_index=True, height=650)
+    else:
+        st.info("Nenhum registro de fabricação ou compra encontrado para os filtros selecionados.")
+
+# ==============================================================================
+# 5. ABA PEÇAS FABRICADAS
 # ==============================================================================
 with tab_fabricadas:
     if not df_trabalho.empty:
@@ -1106,7 +1196,7 @@ with tab_fabricadas:
         st.info("Nenhum dado encontrado para o filtro selecionado.")
 
 # ==============================================================================
-# 5. ABA PEÇAS RETORNADAS
+# 6. ABA PEÇAS RETORNADAS
 # ==============================================================================
 with tab_retornadas:
     if not df_trabalho.empty:
@@ -1150,7 +1240,7 @@ with tab_retornadas:
         else: st.info("ℹ️ Nenhuma peça com retorno registrado para este filtro.")
 
 # ==============================================================================
-# 6. ABA FALTA RETORNO
+# 7. ABA FALTA RETORNO
 # ==============================================================================
 with tab_pend_trat:
     if not df_trabalho.empty:
@@ -1193,7 +1283,7 @@ with tab_pend_trat:
         else: st.success("🎉 Nenhuma peça pendente de retorno de tratamento para este filtro!")
 
 # ==============================================================================
-# 7. ABA AGUARDANDO ENVIO
+# 8. ABA AGUARDANDO ENVIO
 # ==============================================================================
 with tab_aguard_envio:
     if not df_trabalho.empty:
@@ -1231,7 +1321,7 @@ with tab_aguard_envio:
                 st.info("Nenhuma peça aguardando envio para o projeto selecionado.")
 
 # ==============================================================================
-# 8. ABA FALTA FABRICAR
+# 9. ABA FALTA FABRICAR
 # ==============================================================================
 with tab_falta_fab:
     if not df_trabalho.empty:
@@ -1264,7 +1354,7 @@ with tab_falta_fab:
                 st.info("Nenhuma peça pendente de fabricação interna para o projeto selecionado.")
 
 # ==============================================================================
-# 9. ABA COMPRAS EXTERNAS
+# 10. ABA COMPRAS EXTERNAS
 # ==============================================================================
 with tab_compras:
     if not df_comp_trabalho.empty:
@@ -1308,7 +1398,7 @@ with tab_compras:
     else: st.info("Nenhum item de Compras encontrado para o filtro selecionado.")
 
 # ==============================================================================
-# 10. ABA SC EM ABERTO
+# 11. ABA SC EM ABERTO
 # ==============================================================================
 with tab_sc:
     if not df_sc_trabalho.empty:
@@ -1358,7 +1448,7 @@ with tab_sc:
         st.info("Nenhuma Solicitação de Compras em aberto encontrada para o filtro selecionado.")
 
 # ==============================================================================
-# 11. BASE OP COMPLETA
+# 12. BASE OP COMPLETA
 # ==============================================================================
 with tab_base_op:
     st.subheader("📑 Base Completa: OP Fabricação")
@@ -1378,7 +1468,7 @@ with tab_base_op:
             st.dataframe(df_op_raw, use_container_width=True, hide_index=True, height=650)
 
 # ==============================================================================
-# 12. BASE ROMANEIO COMPLETA
+# 13. BASE ROMANEIO COMPLETA
 # ==============================================================================
 with tab_base_rom:
     st.subheader("🎨 Base Completa: Romaneio de Pintura")
@@ -1398,7 +1488,7 @@ with tab_base_rom:
             st.dataframe(df_rom_raw, use_container_width=True, hide_index=True, height=650)
 
 # ==============================================================================
-# 13. BASE COMPRAS COMPLETA
+# 14. BASE COMPRAS COMPLETA
 # ==============================================================================
 with tab_base_comp:
     st.subheader("🛒 Base Completa: Compras e Alinhamento Externo")
