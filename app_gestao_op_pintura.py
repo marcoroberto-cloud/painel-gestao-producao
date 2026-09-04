@@ -199,14 +199,24 @@ def restaurar_backup(pasta_id):
 def normalizar_texto(t):
     if pd.isna(t) or t is None:
         return ""
+    
+    s = str(t)
+    
+    # Remove os artefatos literais do Excel (ex: _x000D_, _X000D_, _x000A_)
+    s = re.sub(r"(?i)_x[0-9a-f]{4}_", " ", s)
+    
+    # Substitui quebras de linha reais e espaços especiais por espaço comum
     s = (
-        str(t)
-        .replace("\xa0", " ")
+        s.replace("\xa0", " ")
         .replace("\u00a0", " ")
         .replace("\r", " ")
         .replace("\n", " ")
     )
+    
+    # Remove caracteres de controle invisíveis
     s = re.sub(r"[\x00-\x1f\x7f-\x9f\ufeff]", "", s)
+    
+    # Colapsa múltiplos espaços em um só, remove espaços nas pontas e joga para maiúsculo
     return re.sub(r"\s+", " ", s).strip().upper()
 
 
@@ -1516,4 +1526,4 @@ with tab_dados_brutos:
                 
             st.dataframe(df_mostrar, use_container_width=True, hide_index=True, height=600)
         else:
-            st.info("Base Compras não carregada.")    
+            st.info("Base Compras não carregada.")
