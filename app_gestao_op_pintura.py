@@ -16,7 +16,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Estilização CSS refinada (Barra lateral liberada)
 st.markdown(
     """
 <style>
@@ -115,7 +114,6 @@ caminho_sc_pqt = os.path.join(STORAGE_DIR, "base_sc.parquet")
 
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
-
 def carregar_meta():
     if os.path.exists(META_FILE):
         try:
@@ -125,11 +123,9 @@ def carregar_meta():
             return {}
     return {}
 
-
 def salvar_meta(meta):
     with open(META_FILE, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
-
 
 def criar_backup_historico(data_str):
     stamp = datetime.now(FUSO_BRASILIA).strftime("%Y%m%d_%H%M%S")
@@ -154,7 +150,6 @@ def criar_backup_historico(data_str):
         for p_remover in todas_pastas[5:]:
             shutil.rmtree(os.path.join(BACKUPS_DIR, p_remover), ignore_errors=True)
 
-
 def listar_historicos_disponiveis():
     backups = []
     if os.path.exists(BACKUPS_DIR):
@@ -168,7 +163,6 @@ def listar_historicos_disponiveis():
                 except Exception:
                     pass
     return backups
-
 
 def restaurar_backup(pasta_id):
     pasta_origem = os.path.join(BACKUPS_DIR, pasta_id)
@@ -195,30 +189,21 @@ def restaurar_backup(pasta_id):
                 )
                 salvar_meta(meta)
 
-
 def normalizar_texto(t):
     if pd.isna(t) or t is None:
         return ""
     
     s = str(t)
-    
-    # Remove os artefatos literais do Excel (ex: _x000D_, _X000D_, _x000A_)
+    # Remove artefatos de quebra de linha do Excel (ex: _x000D_)
     s = re.sub(r"(?i)_x[0-9a-f]{4}_", " ", s)
-    
-    # Substitui quebras de linha reais e espaços especiais por espaço comum
     s = (
         s.replace("\xa0", " ")
         .replace("\u00a0", " ")
         .replace("\r", " ")
         .replace("\n", " ")
     )
-    
-    # Remove caracteres de controle invisíveis
     s = re.sub(r"[\x00-\x1f\x7f-\x9f\ufeff]", "", s)
-    
-    # Colapsa múltiplos espaços em um só, remove espaços nas pontas e joga para maiúsculo
     return re.sub(r"\s+", " ", s).strip().upper()
-
 
 def limpar_cod(c):
     if pd.isna(c) or c is None:
@@ -226,7 +211,6 @@ def limpar_cod(c):
     s = str(c).replace("\xa0", " ").replace("\u00a0", " ")
     s = re.sub(r"[\x00-\x1f\x7f-\x9f\ufeff]", "", s)
     return s.strip().upper()
-
 
 def converter_num(v):
     if pd.isna(v) or v is None:
@@ -236,7 +220,6 @@ def converter_num(v):
         return float(s)
     except Exception:
         return 0.0
-
 
 def formatar_data_br(val):
     if (
@@ -253,7 +236,6 @@ def formatar_data_br(val):
     if m_br:
         return s[:10]
     return s
-
 
 def padronizar_fornecedor_romaneio(val):
     if pd.isna(val) or not str(val).strip() or str(val).strip() == "-":
@@ -278,7 +260,6 @@ def padronizar_fornecedor_romaneio(val):
         return m.group(1).strip()
     return t
 
-
 def buscar_col_flex(df, lista_padroes, excluir_padroes=None):
     if df.empty or len(df.columns) == 0:
         return None
@@ -299,7 +280,6 @@ def buscar_col_flex(df, lista_padroes, excluir_padroes=None):
                 return c
     return None
 
-
 def ler_excel_completo(fonte, sheet_name=0):
     try:
         return pd.read_excel(fonte, sheet_name=sheet_name, engine="calamine")
@@ -308,7 +288,6 @@ def ler_excel_completo(fonte, sheet_name=0):
             return pd.read_excel(fonte, sheet_name=sheet_name, engine="openpyxl")
         except Exception:
             return pd.read_excel(fonte, sheet_name=sheet_name)
-
 
 @st.cache_data(show_spinner=False)
 def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
@@ -329,7 +308,6 @@ def gerar_excel_tabela(df_exportar, nome_aba="Dados"):
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_clean.to_excel(writer, index=False, sheet_name=aba_segura)
     return output.getvalue()
-
 
 def renderizar_botao_copiar_tabela(df_dados, button_id="copy_btn"):
     if df_dados.empty:
@@ -374,23 +352,13 @@ def renderizar_botao_copiar_tabela(df_dados, button_id="copy_btn"):
     """
     components.html(html_code, height=38)
 
-
 def obter_mtimes(pasta_base=STORAGE_DIR):
     return (
-        os.path.getmtime(os.path.join(pasta_base, "base_op.parquet"))
-        if os.path.exists(os.path.join(pasta_base, "base_op.parquet"))
-        else 0,
-        os.path.getmtime(os.path.join(pasta_base, "base_romaneio.parquet"))
-        if os.path.exists(os.path.join(pasta_base, "base_romaneio.parquet"))
-        else 0,
-        os.path.getmtime(os.path.join(pasta_base, "base_compras.parquet"))
-        if os.path.exists(os.path.join(pasta_base, "base_compras.parquet"))
-        else 0,
-        os.path.getmtime(os.path.join(pasta_base, "base_sc.parquet"))
-        if os.path.exists(os.path.join(pasta_base, "base_sc.parquet"))
-        else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_op.parquet")) if os.path.exists(os.path.join(pasta_base, "base_op.parquet")) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_romaneio.parquet")) if os.path.exists(os.path.join(pasta_base, "base_romaneio.parquet")) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_compras.parquet")) if os.path.exists(os.path.join(pasta_base, "base_compras.parquet")) else 0,
+        os.path.getmtime(os.path.join(pasta_base, "base_sc.parquet")) if os.path.exists(os.path.join(pasta_base, "base_sc.parquet")) else 0,
     )
-
 
 @st.cache_data(show_spinner=False)
 def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
@@ -409,10 +377,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
     # 1. OP
     df_op = pd.DataFrame()
     if not df_op_raw.empty:
-        col_obs_op = buscar_col_flex(
-            df_op_raw,
-            ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS", "PROJETO", "LOTE"],
-        )
+        col_obs_op = buscar_col_flex(df_op_raw, ["OBSERVAÇÃO", "OBSERVAÇÕES", "OBSERVACAO", "OBSERVACOES", "OBS", "PROJETO", "LOTE"])
         if not col_obs_op:
             if len(df_op_raw.columns) >= 2 and "OBSERV" in normalizar_texto(df_op_raw.columns[1]):
                 col_obs_op = df_op_raw.columns[1]
@@ -445,16 +410,11 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
     # 2. Romaneio
     df_rom = pd.DataFrame()
     if not df_rom_raw.empty:
-        col_obs_rom = buscar_col_flex(
-            df_rom_raw,
-            ["OBSERVAÇÕES", "OBSERVACOES", "OBSERVAÇÃO", "OBSERVACAO", "OBS", "PROJETO", "LOTE"],
-        )
+        col_obs_rom = buscar_col_flex(df_rom_raw, ["OBSERVAÇÕES", "OBSERVACOES", "OBSERVAÇÃO", "OBSERVACAO", "OBS", "PROJETO", "LOTE"])
         if col_obs_rom is None and len(df_rom_raw.columns) >= 16:
             col_obs_rom = df_rom_raw.columns[15]
 
-        col_prod_rom = buscar_col_flex(
-            df_rom_raw, ["PRODUTO", "COD. PRODUTO", "COD PROD"], excluir_padroes=["PINTURA", "DESC", "TRATAMENTO"]
-        )
+        col_prod_rom = buscar_col_flex(df_rom_raw, ["PRODUTO", "COD. PRODUTO", "COD PROD"], excluir_padroes=["PINTURA", "DESC", "TRATAMENTO"])
         col_desc_rom = buscar_col_flex(df_rom_raw, ["DESCRIÇÃO", "DESCRICAO", "DESC. PROD", "DESC"])
         col_qtd_rom = buscar_col_flex(df_rom_raw, ["QTD", "QTDE", "QUANTIDADE"], excluir_padroes=["RET", "SALDO"])
         col_ret_rom = buscar_col_flex(df_rom_raw, ["QT RET", "QT_RET", "RETORNADO", "QTD RET", "QT"])
@@ -465,11 +425,7 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
                 col_qtd_rom, col_ret_rom = cols_disp[0], cols_disp[1]
 
         col_saldo_rom = buscar_col_flex(df_rom_raw, ["SALDO", "SALD", "SALDO "])
-        col_forn_rom = buscar_col_flex(
-            df_rom_raw,
-            ["CLIENTE/FORN", "CLIENTE/FC", "CLIENTE / FORN", "CLIENTE", "FORNECEDOR"],
-            excluir_padroes=["PROD", "COD", "COR", "PECA", "PEÇA", "DESC", "PINTURA"],
-        )
+        col_forn_rom = buscar_col_flex(df_rom_raw, ["CLIENTE/FORN", "CLIENTE/FC", "CLIENTE / FORN", "CLIENTE", "FORNECEDOR"], excluir_padroes=["PROD", "COD", "COR", "PECA", "PEÇA", "DESC", "PINTURA"])
         col_doc_rom = buscar_col_flex(df_rom_raw, ["DOC.ORIGINAL", "DOC.ORIGIR", "DOC.ORIGEM", "DOC ORIGEM", "ROMANEIO", "Nº ROMANEIO", "DOC"])
         col_dt_envio_rom = buscar_col_flex(df_rom_raw, ["DT EMISSÃO", "DT EMISSÃ", "DT EMISSAO", "DT. EMISSAO", "DATA EMISSAO", "DATA ENVIO", "DT ENVIO"])
         col_nf_ret_rom = buscar_col_flex(df_rom_raw, ["NF RET", "NF_RET", "NOTA RET", "NF RETORNO"])
@@ -507,7 +463,6 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
         col_forn_comp = buscar_col_flex(df_comp_raw, ["FORNECEDOR"])
         col_qt_comp = buscar_col_flex(df_comp_raw, ["QT", "QUANTIDADE", "QTD"])
         col_ent_comp = buscar_col_flex(df_comp_raw, ["QTD ENTREGUE", "QTD.ENTREGUE", "ENTREGUE"])
-        col_fal_comp = buscar_col_flex(df_comp_raw, ["FAL", "FALTA"])
         col_dt_comp = buscar_col_flex(df_comp_raw, ["DT ENT.", "DT ENT", "DATA ENTREGA"])
         col_nf_comp = buscar_col_flex(df_comp_raw, ["NF ENT.", "NF ENT", "NOTA FISCAL", "NF"])
         col_dt_forn = buscar_col_flex(df_comp_raw, ["DATA FORNECEDOR", "DT FORNECEDOR"])
@@ -519,11 +474,9 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
         df_comp["Fornecedor"] = df_comp[col_forn_comp].fillna("-").astype(str) if col_forn_comp else "-"
         df_comp["Qtd_Comprada"] = df_comp[col_qt_comp].apply(converter_num) if col_qt_comp else 0.0
         df_comp["Qtd_Entregue"] = df_comp[col_ent_comp].apply(converter_num) if col_ent_comp else 0.0
-
-        if col_fal_comp:
-            df_comp["Saldo_Falta_Entregar"] = df_comp[col_fal_comp].apply(converter_num)
-        else:
-            df_comp["Saldo_Falta_Entregar"] = (df_comp["Qtd_Comprada"] - df_comp["Qtd_Entregue"]).clip(lower=0.0)
+        
+        # O saldo de falta sempre é calculado matematicamente de forma robusta
+        df_comp["Saldo_Falta_Entregar"] = (df_comp["Qtd_Comprada"] - df_comp["Qtd_Entregue"]).clip(lower=0.0)
 
         df_comp["Data_Entrega"] = df_comp[col_dt_comp].apply(formatar_data_br) if col_dt_comp else "-"
         df_comp["NF_Entrega"] = df_comp[col_nf_comp].fillna("-").astype(str) if col_nf_comp else "-"
@@ -671,7 +624,6 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
         df_cruz_obs, df_comp, df_sc, df_op, df_rom,
         df_op_raw, df_rom_raw, df_comp_raw, df_sc_raw,
     )
-
 
 # --- MENU LATERAL (SIDEBAR) ---
 with st.sidebar:
@@ -1139,9 +1091,9 @@ with tab_mobile:
 # ==============================================================================
 with tab_metalicos_falta:
     if not df_unificado_global.empty:
+        # Filtro fixo: Se não é "100% Entregue", é falta (conforme regra de negócio universal)
         df_faltas = df_unificado_global[
-            (df_unificado_global["Saldo_Pendente_Entrega"] > 0) | 
-            (df_unificado_global["Falta_Produzir_Interno"] > 0)
+            df_unificado_global["Status_Unificado"] != "✅ 100% Entregue"
         ].copy()
         
         if not df_faltas.empty:
