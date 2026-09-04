@@ -13,10 +13,10 @@ st.set_page_config(
     page_title="FCM Metálicos: Gestão Integrada",
     page_icon="🏭",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
-# Estilização CSS refinada
+# Estilização CSS refinada (Barra lateral liberada)
 st.markdown(
     """
 <style>
@@ -33,7 +33,6 @@ st.markdown(
         padding-right: 0.6rem !important;
         max-width: 100% !important;
     }
-    [data-testid="stSidebar"] { display: none !important; }
     
     .sticky-top-panel {
         position: sticky;
@@ -664,59 +663,58 @@ def processar_todas_as_bases(mtimes, pasta_base=STORAGE_DIR):
     )
 
 
-# --- CABEÇALHO COM CONTROLE DE HISTÓRICO ---
-col_head_tit, col_head_up = st.columns([1, 3])
-meta_atual = carregar_meta()
-data_atualizacao = meta_atual.get(
-    "ultima_atualizacao", "Nenhum arquivo salvo ainda"
-)
-
-with col_head_tit:
-    col_logo, col_txt = st.columns([0.25, 0.75])
-    with col_logo:
-        try:
-            st.image("image_aa4e28.png", use_container_width=True)
-        except Exception:
-            st.markdown("### 🏭")
-    with col_txt:
-        st.markdown("### FCM Metálicos")
+# --- MENU LATERAL (SIDEBAR) ---
+with st.sidebar:
+    try:
+        st.image("image_aa4e28.png", use_container_width=True)
+    except Exception:
+        st.markdown("### 🏭")
+    
+    st.markdown("## FCM Metálicos")
+    
+    meta_atual = carregar_meta()
+    data_atualizacao = meta_atual.get("ultima_atualizacao", "Nenhum arquivo salvo ainda")
     st.caption(f"🕒 **Última carga:** {data_atualizacao}")
+    
+    st.divider()
+    
+    st.markdown("### 📥 Atualizar Dados")
+    arquivos_enviados = st.file_uploader(
+        "Carregar planilhas (OP, Romaneio, Compras e SC):",
+        type=["xlsx", "xls", "csv"],
+        accept_multiple_files=True,
+    )
+    
+    st.divider()
+    
+    st.markdown("### ⏳ Histórico de Versões")
+    historicos = listar_historicos_disponiveis()
+    opcoes_historico = ["📁 Versão Atual"] + [f"🕒 Backup: {h[1]}" for h in historicos]
+    escolha_versao = st.selectbox("Selecione um backup:", opcoes_historico, index=0)
 
-with col_head_up:
-    col_up, col_btn_acoes = st.columns([2.5, 1.5])
-    with col_up:
-        arquivos_enviados = st.file_uploader(
-            "📁 Carregar planilhas (OP, Romaneio, Compras e SC):",
-            type=["xlsx", "xls", "csv"],
-            accept_multiple_files=True,
-        )
-    with col_btn_acoes:
-        historicos = listar_historicos_disponiveis()
-        opcoes_historico = ["📁 Versão Atual"] + [f"🕒 Backup: {h[1]}" for h in historicos]
-        escolha_versao = st.selectbox("⏳ Histórico de Versões:", opcoes_historico, index=0)
-
-        c_btn_rest, c_btn_clean = st.columns(2)
-        with c_btn_rest:
-            if escolha_versao != "📁 Versão Atual":
-                if st.button("🔄 Restaurar"):
-                    idx = opcoes_historico.index(escolha_versao) - 1
-                    pasta_sel = historicos[idx][0]
-                    restaurar_backup(pasta_sel)
-                    st.cache_data.clear()
-                    st.success("Versão restaurada com sucesso!")
-                    st.rerun()
-        with c_btn_clean:
-            if st.button("🧹 Resetar"):
-                for fname in ["base_op.parquet", "base_romaneio.parquet", "base_compras.parquet", "base_sc.parquet"]:
-                    p = os.path.join(STORAGE_DIR, fname)
-                    if os.path.exists(p):
-                        os.remove(p)
-                meta_atual["ultima_atualizacao"] = "Nenhum arquivo salvo ainda"
-                salvar_meta(meta_atual)
+    c_btn_rest, c_btn_clean = st.columns(2)
+    with c_btn_rest:
+        if escolha_versao != "📁 Versão Atual":
+            if st.button("🔄 Restaurar"):
+                idx = opcoes_historico.index(escolha_versao) - 1
+                pasta_sel = historicos[idx][0]
+                restaurar_backup(pasta_sel)
                 st.cache_data.clear()
-                st.success("Arquivos resetados com sucesso!")
+                st.success("Versão restaurada!")
                 st.rerun()
+    with c_btn_clean:
+        if st.button("🧹 Resetar"):
+            for fname in ["base_op.parquet", "base_romaneio.parquet", "base_compras.parquet", "base_sc.parquet"]:
+                p = os.path.join(STORAGE_DIR, fname)
+                if os.path.exists(p):
+                    os.remove(p)
+            meta_atual["ultima_atualizacao"] = "Nenhum arquivo salvo ainda"
+            salvar_meta(meta_atual)
+            st.cache_data.clear()
+            st.success("Arquivos resetados!")
+            st.rerun()
 
+# --- LÓGICA DE UPLOAD ---
 if "ultimo_upload_ids" not in st.session_state:
     st.session_state.ultimo_upload_ids = ""
 
@@ -776,7 +774,9 @@ if arquivos_enviados:
         salvar_meta(meta_atual)
         st.session_state.ultimo_upload_ids = ids_atuais
         st.cache_data.clear()
+        st.rerun()
 
+# --- CARREGAMENTO DE DADOS ---
 pasta_carregar = STORAGE_DIR
 if escolha_versao != "📁 Versão Atual":
     idx = opcoes_historico.index(escolha_versao) - 1
@@ -789,7 +789,7 @@ mtimes = obter_mtimes(pasta_carregar)
 ) = processar_todas_as_bases(mtimes, pasta_carregar)
 
 if df_op_raw.empty and df_rom_raw.empty and df_comp_raw.empty and df_sc_raw.empty:
-    st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no campo acima para carregar o painel.")
+    st.info("👆 Nenhuma planilha salva ainda. Selecione os arquivos no menu lateral para carregar o painel.")
     st.stop()
 
 # --- FILTRO 100% ESTRITO DE PROJETO / OBSERVAÇÃO ---
@@ -867,7 +867,6 @@ c5.metric("5. Compras Externas", f"{tot_entregue:,} / {tot_comprado:,} pçs", f"
 c6.metric("6. SC em Aberto", f"{tot_sc_aberto:,} pçs", f"{qtd_itens_sc} solicitações", delta_color="inverse" if tot_sc_aberto > 0 else "normal")
 
 st.markdown("</div>", unsafe_allow_html=True)
-
 
 # --- FUNÇÃO GERADORA DA BASE UNIFICADA (Para as abas de Metálicos) ---
 def gerar_df_unificado(df_trab, df_comp_trab, df_sc_trab):
@@ -951,9 +950,7 @@ nomes_colunas_unificadas = {
     tab_falta_fab,
     tab_compras,
     tab_sc,
-    tab_base_op,
-    tab_base_rom,
-    tab_base_comp,
+    tab_dados_brutos,
 ) = st.tabs([
     "📱 Resumo Executivo (Celular)",
     "🚨 Metálicos Total Falta",
@@ -965,9 +962,7 @@ nomes_colunas_unificadas = {
     "⚙️ Falta Fabricar",
     "📦 Compras Externas",
     "📋 SC em Aberto",
-    "📑 Base OP",
-    "🎨 Base Romaneio",
-    "🛒 Base Compras",
+    "📂 Bases de Dados",
 ])
 
 # ==============================================================================
@@ -1134,7 +1129,6 @@ with tab_mobile:
 # ==============================================================================
 with tab_metalicos_falta:
     if not df_unificado_global.empty:
-        # Filtro fixo: Traz apenas itens com pendência em compras, SC ou fábrica
         df_faltas = df_unificado_global[
             (df_unificado_global["Saldo_Pendente_Entrega"] > 0) | 
             (df_unificado_global["Falta_Produzir_Interno"] > 0)
@@ -1177,7 +1171,6 @@ with tab_metalicos_total:
             )
 
         df_total_view = df_unificado_global[df_unificado_global["Origem_Tipo"].isin(sel_origem)] if sel_origem else df_unificado_global
-        
         df_view = df_total_view[colunas_view_unificada].rename(columns=nomes_colunas_unificadas)
         tot_demanda_geral = int(df_total_view["Qtd_Total_Demanda"].sum())
         tot_pronto_geral = int(df_total_view["Qtd_Entregue_Pronta"].sum())
@@ -1455,72 +1448,72 @@ with tab_sc:
         st.info("Nenhuma Solicitação de Compras em aberto encontrada para o filtro selecionado.")
 
 # ==============================================================================
-# 11. BASE OP COMPLETA
+# 11. ABA CONSOLIDADA: BASES DE DADOS
 # ==============================================================================
-with tab_base_op:
-    st.subheader("📑 Base Completa: OP Fabricação")
-    if not df_op_raw.empty:
-        c_tit_raw, c_btn_raw = st.columns([3, 2])
-        with c_tit_raw:
-            st.caption(f"Total de registros na base: {len(df_op_raw):,}")
-        with c_btn_raw:
-            cb1, cb2 = st.columns(2)
-            with cb1:
-                renderizar_botao_copiar_tabela(df_op_raw, "btn_cp_base_op")
-            with cb2:
-                st.download_button(
-                    "📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_op_raw, "Base_OP"),
-                    file_name="Base_OP_Fabricacao.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        if busca_cod:
-            st.dataframe(df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
-        else:
-            st.dataframe(df_op_raw, use_container_width=True, hide_index=True, height=650)
+with tab_dados_brutos:
+    st.markdown("### 📂 Visualizador de Bases de Dados Brutas")
+    
+    tipo_base = st.radio(
+        "Selecione a base de dados para visualizar:",
+        ["📑 OP Fabricação", "🎨 Romaneio de Pintura", "🛒 Compras e Externos"],
+        horizontal=True
+    )
+    
+    st.markdown("---")
 
-# ==============================================================================
-# 12. BASE ROMANEIO COMPLETA
-# ==============================================================================
-with tab_base_rom:
-    st.subheader("🎨 Base Completa: Romaneio de Pintura")
-    if not df_rom_raw.empty:
-        c_tit_raw, c_btn_raw = st.columns([3, 2])
-        with c_tit_raw:
-            st.caption(f"Total de registros na base: {len(df_rom_raw):,}")
-        with c_btn_raw:
-            cb1, cb2 = st.columns(2)
-            with cb1:
-                renderizar_botao_copiar_tabela(df_rom_raw, "btn_cp_base_rom")
-            with cb2:
-                st.download_button(
-                    "📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_rom_raw, "Base_Romaneio"),
-                    file_name="Base_Romaneio_Pintura.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        if busca_cod:
-            st.dataframe(df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
+    if tipo_base == "📑 OP Fabricação":
+        if not df_op_raw.empty:
+            c_tit_raw, c_btn_raw = st.columns([3, 2])
+            with c_tit_raw:
+                st.caption(f"Total de registros: {len(df_op_raw):,}")
+            with c_btn_raw:
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    renderizar_botao_copiar_tabela(df_op_raw, "btn_cp_base_op")
+                with cb2:
+                    st.download_button("📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_op_raw, "Base_OP"), file_name="Base_OP.xlsx")
+            
+            df_mostrar = df_op_raw[df_op_raw["Produto"].astype(str).str.contains(busca_cod, case=False, na=False)] if busca_cod else df_op_raw
+            st.dataframe(df_mostrar, use_container_width=True, hide_index=True, height=600)
         else:
-            st.dataframe(df_rom_raw, use_container_width=True, hide_index=True, height=650)
+            st.info("Base OP não carregada.")
 
-# ==============================================================================
-# 13. BASE COMPRAS COMPLETA
-# ==============================================================================
-with tab_base_comp:
-    st.subheader("🛒 Base Completa: Compras e Alinhamento Externo")
-    if not df_comp_raw.empty:
-        c_tit_raw, c_btn_raw = st.columns([3, 2])
-        with c_tit_raw:
-            st.caption(f"Total de registros na base: {len(df_comp_raw):,}")
-        with c_btn_raw:
-            cb1, cb2 = st.columns(2)
-            with cb1:
-                renderizar_botao_copiar_tabela(df_comp_raw, "btn_cp_base_comp")
-            with cb2:
-                st.download_button(
-                    "📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_comp_raw, "Base_Compras"),
-                    file_name="Base_Compras_Completa.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-        if busca_cod:
-            col_busca_prod = [c for c in df_comp_raw.columns if "PROD" in str(c).upper() or "COD" in str(c).upper()]
-            col_target = col_busca_prod[0] if col_busca_prod else df_comp_raw.columns[2]
-            st.dataframe(df_comp_raw[df_comp_raw[col_target].astype(str).str.contains(busca_cod, case=False, na=False)], use_container_width=True, hide_index=True, height=650)
+    elif tipo_base == "🎨 Romaneio de Pintura":
+        if not df_rom_raw.empty:
+            c_tit_raw, c_btn_raw = st.columns([3, 2])
+            with c_tit_raw:
+                st.caption(f"Total de registros: {len(df_rom_raw):,}")
+            with c_btn_raw:
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    renderizar_botao_copiar_tabela(df_rom_raw, "btn_cp_base_rom")
+                with cb2:
+                    st.download_button("📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_rom_raw, "Base_Romaneio"), file_name="Base_Romaneio.xlsx")
+            
+            df_mostrar = df_rom_raw[df_rom_raw["PRODUTO"].astype(str).str.contains(busca_cod, case=False, na=False)] if busca_cod else df_rom_raw
+            st.dataframe(df_mostrar, use_container_width=True, hide_index=True, height=600)
         else:
-            st.dataframe(df_comp_raw, use_container_width=True, hide_index=True, height=650)
+            st.info("Base Romaneio não carregada.")
+
+    elif tipo_base == "🛒 Compras e Externos":
+        if not df_comp_raw.empty:
+            c_tit_raw, c_btn_raw = st.columns([3, 2])
+            with c_tit_raw:
+                st.caption(f"Total de registros: {len(df_comp_raw):,}")
+            with c_btn_raw:
+                cb1, cb2 = st.columns(2)
+                with cb1:
+                    renderizar_botao_copiar_tabela(df_comp_raw, "btn_cp_base_comp")
+                with cb2:
+                    st.download_button("📥 Exportar (.xlsx)", data=gerar_excel_tabela(df_comp_raw, "Base_Compras"), file_name="Base_Compras.xlsx")
+            
+            if busca_cod:
+                col_busca_prod = [c for c in df_comp_raw.columns if "PROD" in str(c).upper() or "COD" in str(c).upper()]
+                col_target = col_busca_prod[0] if col_busca_prod else df_comp_raw.columns[2]
+                df_mostrar = df_comp_raw[df_comp_raw[col_target].astype(str).str.contains(busca_cod, case=False, na=False)]
+            else:
+                df_mostrar = df_comp_raw
+                
+            st.dataframe(df_mostrar, use_container_width=True, hide_index=True, height=600)
+        else:
+            st.info("Base Compras não carregada.")    
